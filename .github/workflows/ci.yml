@@ -18,8 +18,8 @@ jobs:
   python-bridge:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Install otto (the git pin until 0.2.0 is on PyPI) and pytest
@@ -35,14 +35,14 @@ jobs:
   android:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
       # Chaquopy compiles the app's Python with a build-time interpreter of
       # the same version as the one it embeds.
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
       - uses: gradle/actions/setup-gradle@v4
@@ -50,7 +50,7 @@ jobs:
         run: ./gradlew --no-daemon testDebugUnitTest
       - name: Debug APK (embedded Python off until wheels/ is populated)
         run: ./gradlew --no-daemon assembleDebug
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: otto-debug-apk
           path: app/build/outputs/apk/debug/*.apk
