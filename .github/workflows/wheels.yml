@@ -76,7 +76,7 @@ jobs:
             if llvm-readelf -l "$so" 2>/dev/null | awk '/LOAD/ && $NF != "0x4000" && $NF != "0x10000" {found=1} END {exit !found}'; then echo "4 KB-aligned: $so"; bad=1; fi
           done
           exit $bad
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: wheels-${{ matrix.package }}
           path: wheelhouse/*.whl
@@ -94,7 +94,7 @@ jobs:
           ref=$(sed -n 's/.*@\([0-9a-f]\{7,40\}\).*/\1/p' requirements-otto-git.txt | head -1)
           git clone https://github.com/siddharth23P/otto_agent src && cd src && git checkout "${ref:-main}"
           python -m build --wheel --outdir ../wheelhouse
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: wheels-otto
           path: wheelhouse/*.whl
