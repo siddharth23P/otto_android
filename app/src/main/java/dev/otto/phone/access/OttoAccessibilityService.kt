@@ -181,8 +181,10 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
             "back" -> performGlobalAction(GLOBAL_ACTION_BACK)
             "home" -> performGlobalAction(GLOBAL_ACTION_HOME)
             "recents" -> performGlobalAction(GLOBAL_ACTION_RECENTS)
-            "enter" -> findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
-                ?.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id) ?: false
+            "enter" -> {
+                val focused = findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+                focused?.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id) ?: false
+            }
             else -> throw DeviceException("not a key this knows: $key", "unsupported")
         }
         if (!ok) throw DeviceException("$key was not accepted", "failed")
