@@ -22,7 +22,7 @@ jobs:
           java-version: "17"
       # Chaquopy compiles the app's Python with a build-time interpreter of
       # the same version as the one it embeds.
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
       - uses: gradle/actions/setup-gradle@v4
