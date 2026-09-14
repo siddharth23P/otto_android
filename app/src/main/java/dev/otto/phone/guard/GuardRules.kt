@@ -11,10 +11,13 @@ import java.util.regex.Pattern
 class GuardRules private constructor(
     val version: Int,
     val deniedPackages: Set<String>,
+    val deniedNames: List<Pattern>,
     val packageWords: List<String>,
     val packageWordExceptions: List<String>,
     val sensitivePatterns: List<Pattern>,
     val payWords: List<String>,
+    val forwardWords: List<String>,
+    val checkoutSignals: List<Pattern>,
     val commitWords: List<String>,
     val settingsPages: List<String>,
 ) {
@@ -25,10 +28,13 @@ class GuardRules private constructor(
             return GuardRules(
                 version = root["version"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0,
                 deniedPackages = list("denied_packages").map { it.lowercase() }.toSet(),
+                deniedNames = list("denied_names").map { Pattern.compile("(^|\\W)" + Pattern.quote(it.lowercase()) + "($|\\W)") },
                 packageWords = list("package_words").map { it.lowercase() },
                 packageWordExceptions = list("package_word_exceptions").map { it.lowercase() },
                 sensitivePatterns = list("sensitive_patterns").map { Pattern.compile(it, Pattern.CASE_INSENSITIVE) },
                 payWords = list("pay_words").map { it.lowercase() },
+                forwardWords = list("forward_words").map { it.lowercase() },
+                checkoutSignals = list("checkout_signals").map { Pattern.compile(it, Pattern.CASE_INSENSITIVE) },
                 commitWords = list("commit_words").map { it.lowercase() },
                 settingsPages = list("settings_pages"),
             )
