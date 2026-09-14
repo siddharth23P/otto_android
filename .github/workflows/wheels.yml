@@ -37,7 +37,7 @@ jobs:
         package: [pydantic-core, jiter, orjson, ormsgpack, tiktoken, uuid-utils, zstandard]
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
       - uses: actions/setup-java@v4
@@ -106,7 +106,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
       - name: Build the pure-Python otto wheel from the pinned ref

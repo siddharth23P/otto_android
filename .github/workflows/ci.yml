@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Install otto (the git pin until 0.2.0 is on PyPI) and pytest
@@ -42,7 +42,7 @@ jobs:
           java-version: "17"
       # Chaquopy compiles the app's Python with a build-time interpreter of
       # the same version as the one it embeds.
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
       - uses: gradle/actions/setup-gradle@v4
