@@ -44,7 +44,9 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-      - uses: android-actions/setup-android@v3
+      # ubuntu-latest ships the Android SDK at $ANDROID_HOME; setup-android
+      # is not needed and its default package list names one the SDK
+      # no longer has ('tools'), which failed every build.
       - uses: astral-sh/setup-uv@v6   # the build[uv] frontend
       - uses: dtolnay/rust-toolchain@stable
         with:
