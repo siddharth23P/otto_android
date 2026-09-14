@@ -70,6 +70,21 @@ jobs:
       - name: Build with cibuildwheel for Android
         run: |
           pip install cibuildwheel
+          # An sdist's own [tool.cibuildwheel] is written for the version its
+          # maintainers use: zstandard names the enable group
+          # "cpython-freethreading", which cibuildwheel 4 no longer knows and
+          # refuses to parse. Our settings all come from the environment, so
+          # drop the sdist's table and build from ours alone.
+          python - <<'PY'
+          import re, pathlib
+          p = pathlib.Path("src/pyproject.toml")
+          if p.exists():
+              text = p.read_text()
+              cleaned = re.sub(r"(?ms)^\[tool\.cibuildwheel(?:\.[^\]]*)?\]\n.*?(?=^\[|\Z)", "", text)
+              if cleaned != text:
+                  p.write_text(cleaned)
+                  print("dropped the sdist's [tool.cibuildwheel] tables")
+          PY
           cd src && cibuildwheel --output-dir ../wheelhouse
       - name: Check 16 KB LOAD alignment on every native library
         run: |
