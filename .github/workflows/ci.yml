@@ -50,7 +50,7 @@ jobs:
         run: ./gradlew --no-daemon testDebugUnitTest
       - name: Debug APK (embedded Python off until wheels/ is populated)
         run: ./gradlew --no-daemon assembleDebug
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: otto-debug-apk
           path: app/build/outputs/apk/debug/*.apk
