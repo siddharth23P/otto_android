@@ -42,7 +42,10 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
     private val counter = AtomicInteger()
     private var lastSnapshot: Snapshot? = null
     private var lastNodes: Map<Int, AccessibilityNodeInfo> = emptyMap()
-    private var lastCapture: Pair<Long, JsonObject>? = null
+    //: The last screenshot, with the capture it was taken on: the cache may only
+    //: answer for that same capture, and a blind tap may only follow a look at it.
+    private var lastCapture: Triple<Long, String, JsonObject>? = null
+    private var lookedId: String? = null
     lateinit var guard: PolicyGuard
     private lateinit var catalog: AppCatalog
 
@@ -128,7 +131,13 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
     // -- acting --------------------------------------------------------------
 
     override fun tap(x: Int, y: Int): JsonObject = serial {
-        guard.requireActionable(lastSnapshot ?: snapshotNow())
+        val current = lastSnapshot ?: snapshotNow()
+        guard.requireActionable(current)
+        // A tap by coordinates is a tap on whatever is drawn there; a point with nothing under it is
+        // refused on a screen that has elements, because what is drawn there is unknown.
+        val under = guard.nodeAt(current, x, y)
+        if (under == null) guard.requireBlindTap(current, lookedId)
+        else { guard.requireTappable(under, commit = false, texts = current.nodes.map { it.label }); guard.requireTypeable(under.takeIf { it.password }) }
         if (!Gestures.dispatch(this, Gestures.tap(x, y))) throw DeviceException("the tap was not delivered", "failed")
         after("tapped $x,$y")
     }
@@ -136,7 +145,7 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
     override fun tapNode(snapshotId: String, node: Int, long: Boolean, commit: Boolean): JsonObject = serial {
         guard.requireActionable(lastSnapshot)
         val (ui, info) = requireNode(snapshotId, node)
-        guard.requireTappable(ui, commit)
+        guard.requireTappable(ui, commit, texts = lastSnapshot?.nodes?.map { it.label } ?: emptyList())
         val action = if (long) AccessibilityNodeInfo.ACTION_LONG_CLICK else AccessibilityNodeInfo.ACTION_CLICK
         val done = info.performAction(action) || Gestures.dispatch(this, Gestures.tap(ui.centreX, ui.centreY, long))
         if (!done) throw DeviceException("could not tap [$node] '${ui.label}'", "failed")
@@ -151,14 +160,24 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
             info.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
             info
         } else findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
-        if (target != null && target.isPassword) guard.requireTypeable(lastSnapshot?.nodes?.firstOrNull { it.password })
+        if (target != null && target.isPassword) guard.requireTypeable(lastSnapshot?.nodes?.firstOrNull { it.password }
+            ?: UiNode(0, "", "", "edit-field", 0, 0, 0, 0, false, true, false, true, true, null))
+        if (node < 0 && target == null && lastSnapshot?.nodes?.any { it.password } == true) {
+            throw DeviceException("a password field is on this screen and nothing has focus -- say which field", "guard", handover = true)
+        }
         var ok = false
         if (target != null) {
             val args = Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text) }
             ok = target.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
         }
         if (!ok && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            ok = inputMethod?.currentInputConnection?.commitText(text, 1, null) ?: false
+            // AccessibilityInputConnection.commitText returns nothing (unlike
+            // the IME InputConnection); having a connection is the success.
+            val connection = inputMethod?.currentInputConnection
+            if (connection != null) {
+                connection.commitText(text, 1, null)
+                ok = true
+            }
         }
         if (!ok && target != null) {
             val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -170,12 +189,21 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
     }
 
     override fun press(key: String): JsonObject = serial {
+        // Back, home and recents are the way out and always allowed; enter is the keyboard's
+        // submit for the focused field and is judged like a tap on this screen.
+        if (key == "enter") {
+            val current = lastSnapshot ?: snapshotNow()
+            guard.requireActionable(current)
+            guard.requireSubmit(current)
+        }
         val ok = when (key) {
             "back" -> performGlobalAction(GLOBAL_ACTION_BACK)
             "home" -> performGlobalAction(GLOBAL_ACTION_HOME)
             "recents" -> performGlobalAction(GLOBAL_ACTION_RECENTS)
-            "enter" -> findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
-                ?.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id) ?: false
+            "enter" -> {
+                val focused = findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+                focused?.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id) ?: false
+            }
             else -> throw DeviceException("not a key this knows: $key", "unsupported")
         }
         if (!ok) throw DeviceException("$key was not accepted", "failed")
@@ -219,7 +247,14 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
         if (guard.packageVerdict(current.packageName, current.label).isNotEmpty()) {
             throw DeviceException(guard.packageVerdict(current.packageName, current.label), "guard", handover = true)
         }
-        lastCapture?.let { (at, json) -> if (System.currentTimeMillis() - at < 1000) return@serial json }
+        lastCapture?.let { (at, id, json) ->
+            // Only for the capture it was taken on: the screen may have moved on
+            // inside the second, and an old picture of a new screen is a lie.
+            if (id == current.snapshotId && System.currentTimeMillis() - at < 1000) {
+                lookedId = current.snapshotId
+                return@serial json
+            }
+        }
         val latch = CountDownLatch(1)
         var bitmap: Bitmap? = null
         var error = 0
@@ -249,7 +284,8 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
             put("png_b64", Base64.encodeToString(bytes, Base64.NO_WRAP))
             put("scale", if (scale < 1f) scale.toDouble() else 1.0)
         }
-        lastCapture = System.currentTimeMillis() to json
+        lastCapture = Triple(System.currentTimeMillis(), current.snapshotId, json)
+        lookedId = current.snapshotId
         json
     }
 
@@ -281,6 +317,8 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
 
     override fun install(packageName: String, query: String): JsonObject = serial {
         guard.requireActionable(null)
+        val why = guard.packageVerdict(packageName, query)
+        if (why.isNotEmpty()) throw DeviceException("$why -- not installed", "guard", handover = false)
         if (!PlayStore.open(this, packageName, query)) throw DeviceException("the Play Store could not be opened", "unsupported")
         var state = "listing opened"
         val deadline = System.currentTimeMillis() + 20_000
