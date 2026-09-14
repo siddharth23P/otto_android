@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "denied_packages": [
     "com.phonepe.app", "com.google.android.apps.nbu.paisa.user", "net.one97.paytm",
     "in.org.npci.upiapp", "com.dreamplug.androidapp", "com.mobikwik_new",
@@ -14,11 +14,16 @@
     "com.starlingbank.android", "com.monzo.android", "com.samsung.android.spay",
     "com.google.android.apps.walletnfcrel"
   ],
+  "denied_names": [
+    "phonepe", "google pay", "gpay", "paytm", "bhim", "cred", "mobikwik", "freecharge",
+    "amazon pay", "paypal", "venmo", "cash app", "revolut", "wise", "coinbase", "binance",
+    "zerodha", "kite", "upstox", "groww", "angel one", "samsung pay", "google wallet"
+  ],
   "package_words": [
     "bank", "pay", "upi", "wallet", "finance", "fintech", "loan", "credit", "trading",
     "invest", "insurance", "mutual", "broker", "crypto", "lend", "emi", "cashback"
   ],
-  "package_word_exceptions": ["payload", "player", "display", "paypal.shopping"],
+  "package_word_exceptions": ["payload", "paypal.shopping"],
   "sensitive_patterns": [
     "\\bupi\\s*pin\\b", "\\bm?pin\\b", "\\bpasscode\\b", "\\botp\\b",
     "\\bone[- ]time\\s+pass(word|code)\\b", "\\bcvv\\b", "\\bcvc\\b",
@@ -31,12 +36,22 @@
     "confirm order", "confirm and pay", "confirm payment", "complete payment", "make payment",
     "pay with", "pay using", "swipe to pay", "slide to pay", "tap to pay", "buy now",
     "pay ₹", "pay rs", "pay $", "subscribe now", "start free trial", "add money", "send money",
-    "transfer", "top up", "recharge now"
+    "transfer", "top up", "recharge now",
+    "pay", "buy", "purchase", "subscribe", "order now", "pay later"
+  ],
+  "forward_words": [
+    "continue", "proceed", "next", "confirm", "done", "review order", "go to checkout", "finish"
+  ],
+  "checkout_signals": [
+    "\\b(grand|sub|order|cart|bill|amount)?\\s*total\\b", "\\border summary\\b", "\\bpayment\\b",
+    "\\bpay(ing|able)?\\b", "\\bcheckout\\b", "\\bbilling\\b", "\\bto pay\\b",
+    "\\bcard\\s+(number|details)\\b", "\\bupi\\b"
   ],
   "commit_words": [
     "send", "delete", "confirm", "submit", "remove", "unsubscribe", "sign out", "log out",
     "uninstall", "factory reset", "erase", "block", "report", "post", "publish", "share",
-    "accept", "agree", "allow", "turn off", "disable", "cancel order", "return item"
+    "accept", "agree", "allow", "turn off", "disable", "cancel order", "return item",
+    "checkout", "check out"
   ],
   "settings_pages": [
     "display", "font", "wifi", "bluetooth", "apps", "sound", "battery", "notifications",

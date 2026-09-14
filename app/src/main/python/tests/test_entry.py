@@ -18,9 +18,13 @@ def _wait(pred, timeout=10):
     return False
 
 
+KEYS = {name: "test-placeholder-not-a-real-key" for name in ("INCEPTION_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY")}
+
+
 def test_bootstrap_and_setup_status(bridge, tmp_path, monkeypatch):
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    status = json.loads(bootstrap.configure(str(tmp_path / "otto"), json.dumps({"OPENAI_API_KEY": "sk-keystore1234"})))
+    # Keys arrive from the keystore and nothing else: naming them clears
+    # whatever the process had (otto 0.2.0's configure()).
+    status = json.loads(bootstrap.configure(str(tmp_path / "otto"), json.dumps({**KEYS, "OPENAI_API_KEY": "sk-keystore1234"})))
     assert status == {"ok": True, "available": True, "home": str(tmp_path / "otto")}
     assert (tmp_path / "otto").is_dir()
     info = json.loads(entry.setup_status())
@@ -33,7 +37,7 @@ def test_bootstrap_and_setup_status(bridge, tmp_path, monkeypatch):
 
 
 def test_a_turn_reaches_the_phone_and_events_reach_kotlin(bridge, tmp_path, monkeypatch):
-    bootstrap.configure(str(tmp_path / "otto"))
+    bootstrap.configure(str(tmp_path / "otto"), json.dumps(KEYS))
     observed = {}
 
     def fake_run(text, **kwargs):
@@ -68,7 +72,7 @@ def test_a_turn_reaches_the_phone_and_events_reach_kotlin(bridge, tmp_path, monk
 
 
 def test_cancel_stops_a_waiting_turn(bridge, tmp_path, monkeypatch):
-    bootstrap.configure(str(tmp_path / "otto"))
+    bootstrap.configure(str(tmp_path / "otto"), json.dumps(KEYS))
 
     def fake_run(text, **kwargs):
         yield {"__ask__": {"question": "?", "choices": [], "thread_id": "t"}}
@@ -83,7 +87,7 @@ def test_cancel_stops_a_waiting_turn(bridge, tmp_path, monkeypatch):
 
 
 def test_the_bridge_runs_off_the_calling_thread(bridge, tmp_path, monkeypatch):
-    bootstrap.configure(str(tmp_path / "otto"))
+    bootstrap.configure(str(tmp_path / "otto"), json.dumps(KEYS))
     seen = {}
 
     def fake_run(text, **kwargs):
