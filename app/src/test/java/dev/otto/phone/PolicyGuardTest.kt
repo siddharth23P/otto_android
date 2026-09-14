@@ -68,6 +68,7 @@ class PolicyGuardTest {
         assertEquals(PolicyGuard.Target.NONE, guard.targetVerdict("Continue", listOf("Welcome to Blinkit", "Pick your location", "Continue")))
         assertEquals(PolicyGuard.Target.COMMIT, guard.targetVerdict("Confirm", listOf("Delete this chat?", "Confirm")))
         assertEquals(PolicyGuard.Target.NONE, guard.targetVerdict("Continue"))
+        assertEquals(PolicyGuard.Target.PAY, guard.targetVerdict("ReviewOrder", checkout))  // a phrase, squashed like a pay word
         assertEquals("Order summary", guard.checkoutContext(checkout))
         assertEquals("", guard.checkoutContext(listOf("Step 2 of 3")))
         try { guard.requireTappable(node(1, "Continue", clickable = true), commit = true, texts = checkout); fail("expected a guard refusal") }

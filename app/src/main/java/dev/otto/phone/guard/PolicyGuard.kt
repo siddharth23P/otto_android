@@ -84,11 +84,9 @@ class PolicyGuard(val rules: GuardRules) {
         // A phrase matches as a substring, and with every space removed; a single word matches whole
         // ("Pay", "Pay ₹499", not "Payload"). A pay word may over-match; it only ever refuses.
         val squashed = text.replace(" ", "")
-        for (word in rules.payWords) {
-            val hit = if (" " in word) word in text || word.replace(" ", "") in squashed else whole(word, text)
-            if (hit) return Target.PAY
-        }
-        if (rules.forwardWords.any { whole(it, text) || (" " in it && it in text) } && checkoutContext(texts).isNotEmpty()) return Target.PAY
+        fun hit(word: String) = if (" " in word) word in text || word.replace(" ", "") in squashed else whole(word, text)
+        if (rules.payWords.any(::hit)) return Target.PAY
+        if (rules.forwardWords.any(::hit) && checkoutContext(texts).isNotEmpty()) return Target.PAY
         if (rules.commitWords.any { whole(it, text) }) return Target.COMMIT
         return Target.NONE
     }
