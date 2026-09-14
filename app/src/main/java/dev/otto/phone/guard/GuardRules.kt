@@ -11,6 +11,7 @@ import java.util.regex.Pattern
 class GuardRules private constructor(
     val version: Int,
     val deniedPackages: Set<String>,
+    val deniedNames: List<Pattern>,
     val packageWords: List<String>,
     val packageWordExceptions: List<String>,
     val sensitivePatterns: List<Pattern>,
@@ -25,6 +26,7 @@ class GuardRules private constructor(
             return GuardRules(
                 version = root["version"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0,
                 deniedPackages = list("denied_packages").map { it.lowercase() }.toSet(),
+                deniedNames = list("denied_names").map { Pattern.compile("(^|\\W)" + Pattern.quote(it.lowercase()) + "($|\\W)") },
                 packageWords = list("package_words").map { it.lowercase() },
                 packageWordExceptions = list("package_word_exceptions").map { it.lowercase() },
                 sensitivePatterns = list("sensitive_patterns").map { Pattern.compile(it, Pattern.CASE_INSENSITIVE) },
