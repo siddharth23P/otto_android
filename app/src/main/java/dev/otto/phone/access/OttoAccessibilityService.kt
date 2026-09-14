@@ -165,7 +165,13 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
             ok = target.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
         }
         if (!ok && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            ok = inputMethod?.currentInputConnection?.commitText(text, 1, null) ?: false
+            // AccessibilityInputConnection.commitText returns nothing (unlike
+            // the IME InputConnection); having a connection is the success.
+            val connection = inputMethod?.currentInputConnection
+            if (connection != null) {
+                connection.commitText(text, 1, null)
+                ok = true
+            }
         }
         if (!ok && target != null) {
             val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
