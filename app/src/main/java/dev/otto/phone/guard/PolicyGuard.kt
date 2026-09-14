@@ -27,17 +27,26 @@ class PolicyGuard(val rules: GuardRules) {
 
     private fun note(why: String): String { log.add(why); if (log.size > 200) log.removeAt(0); return why }
 
+    /** NFKC-folded, invisible characters removed, lower-cased, one space between words -- the
+     *  same normalisation as otto's guard.normal(), so the two sides read one screen the same way. */
+    fun normal(text: String): String {
+        val folded = java.text.Normalizer.normalize(text, java.text.Normalizer.Form.NFKC)
+        return folded.replace(INVISIBLE, "").lowercase().trim().split(Regex("\\s+")).filter { it.isNotEmpty() }.joinToString(" ")
+    }
+
     fun packageVerdict(packageName: String, label: String = ""): String {
-        val pkg = packageName.trim().lowercase()
+        val pkg = normal(packageName)
         if (pkg in rules.deniedPackages) return "$packageName is a payment or banking app"
-        var text = "$pkg ${label.lowercase()}"
+        val shown = normal(label)
+        if (shown.isNotEmpty() && rules.deniedNames.any { it.matcher(shown).find() }) return "$label is a payment or banking app"
+        var text = "$pkg $shown"
         for (exc in rules.packageWordExceptions) text = text.replace(exc, " ")
         for (word in rules.packageWords) if (word in text) return "${label.ifBlank { packageName }} looks money-related ('$word')"
         return ""
     }
 
     fun sensitiveMatches(texts: Iterable<String>): List<String> =
-        texts.filter { t -> rules.sensitivePatterns.any { it.matcher(t).find() } }.map { it.take(60) }
+        texts.filter { t -> rules.sensitivePatterns.any { it.matcher(normal(t)).find() } }.map { it.take(60) }
 
     fun screenVerdict(snapshot: Snapshot): String {
         val pkgWhy = packageVerdict(snapshot.packageName, snapshot.label)
@@ -55,9 +64,10 @@ class PolicyGuard(val rules: GuardRules) {
     }
 
     fun targetVerdict(label: String): Target {
-        val text = label.lowercase().split(Regex("\\s+")).joinToString(" ").trim()
+        val text = normal(label)
         if (text.isEmpty()) return Target.NONE
-        if (rules.payWords.any { it in text }) return Target.PAY
+        val squashed = text.replace(" ", "")
+        if (rules.payWords.any { it in text || it.replace(" ", "") in squashed }) return Target.PAY
         if (rules.commitWords.any { Regex("(^|\\W)" + Regex.escape(it) + "($|\\W)").containsMatchIn(text) }) return Target.COMMIT
         return Target.NONE
     }
@@ -83,6 +93,15 @@ class PolicyGuard(val rules: GuardRules) {
         if (node != null && node.password) throw guard(note("that is a password field -- the person types there"), handover = true)
     }
 
+    /** The smallest element under a point, for a tap by coordinates. */
+    fun nodeAt(snapshot: Snapshot, x: Int, y: Int): UiNode? =
+        snapshot.nodes.filter { x in it.left..it.right && y in it.top..it.bottom }
+            .minByOrNull { (it.right - it.left).coerceAtLeast(1) * (it.bottom - it.top).coerceAtLeast(1) }
+
     private fun guard(message: String, handover: Boolean) =
         dev.otto.phone.bridge.DeviceException(message, "guard", handover)
+
+    companion object {
+        val INVISIBLE = Regex("[\\u200B-\\u200F\\u2060-\\u2064\\u00AD\\uFEFF\\u202A-\\u202E\\u2066-\\u2069]")
+    }
 }

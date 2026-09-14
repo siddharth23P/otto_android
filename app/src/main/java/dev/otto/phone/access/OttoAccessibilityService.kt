@@ -128,7 +128,10 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
     // -- acting --------------------------------------------------------------
 
     override fun tap(x: Int, y: Int): JsonObject = serial {
-        guard.requireActionable(lastSnapshot ?: snapshotNow())
+        val current = lastSnapshot ?: snapshotNow()
+        guard.requireActionable(current)
+        // A tap by coordinates is a tap on whatever is drawn there.
+        guard.nodeAt(current, x, y)?.let { under -> guard.requireTappable(under, commit = false); guard.requireTypeable(under.takeIf { it.password }) }
         if (!Gestures.dispatch(this, Gestures.tap(x, y))) throw DeviceException("the tap was not delivered", "failed")
         after("tapped $x,$y")
     }
@@ -151,7 +154,11 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
             info.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
             info
         } else findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
-        if (target != null && target.isPassword) guard.requireTypeable(lastSnapshot?.nodes?.firstOrNull { it.password })
+        if (target != null && target.isPassword) guard.requireTypeable(lastSnapshot?.nodes?.firstOrNull { it.password }
+            ?: UiNode(0, "", "", "edit-field", 0, 0, 0, 0, false, true, false, true, true, null))
+        if (node < 0 && target == null && lastSnapshot?.nodes?.any { it.password } == true) {
+            throw DeviceException("a password field is on this screen and nothing has focus -- say which field", "guard", handover = true)
+        }
         var ok = false
         if (target != null) {
             val args = Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text) }
@@ -281,6 +288,8 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
 
     override fun install(packageName: String, query: String): JsonObject = serial {
         guard.requireActionable(null)
+        val why = guard.packageVerdict(packageName, query)
+        if (why.isNotEmpty()) throw DeviceException("$why -- not installed", "guard", handover = false)
         if (!PlayStore.open(this, packageName, query)) throw DeviceException("the Play Store could not be opened", "unsupported")
         var state = "listing opened"
         val deadline = System.currentTimeMillis() + 20_000

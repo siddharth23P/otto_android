@@ -66,3 +66,26 @@ class PolicyGuardTest {
         guard.requireTypeable(node(1, "Search", editable = true))
     }
 }
+
+class PolicyGuardReviewTest {
+    private val rules = GuardRules.parse(File("src/main/assets/guard_rules.json").readText())
+    private val guard = PolicyGuard(rules)
+
+    @Test fun deniedNamesAndNormalisation() {
+        assertTrue(guard.packageVerdict("", "PhonePe").contains("payment or banking"))
+        assertTrue(guard.packageVerdict("", "Google Pay: Save and Pay").contains("payment or banking"))
+        assertEquals("", guard.packageVerdict("", "Otherwise Notes"))
+        assertEquals(PolicyGuard.Target.PAY, guard.targetVerdict("Pay​now"))
+        assertEquals(PolicyGuard.Target.PAY, guard.targetVerdict("Ｐａｙ now"))
+        assertEquals("pay now", guard.normal("  Pay​  NOW "))
+    }
+
+    @Test fun theElementUnderAPoint() {
+        val big = UiNode(1, "Cart", "", "list", 0, 0, 1080, 2400, false, false, true, false, false, null)
+        val pay = UiNode(2, "Pay now", "", "button", 60, 2200, 1020, 2300, true, false, false, false, false, null)
+        val snapshot = Snapshot("s", "com.grofers.customerapp", "Blinkit", 1080, 2400, false, false, listOf(big, pay))
+        assertEquals(2, guard.nodeAt(snapshot, 540, 2250)?.index)
+        assertEquals(1, guard.nodeAt(snapshot, 10, 10)?.index)
+        assertEquals(null, guard.nodeAt(snapshot, 5000, 5000))
+    }
+}
