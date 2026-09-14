@@ -110,10 +110,15 @@ class PolicyGuard(val rules: GuardRules) {
 
     /** A tap by coordinates that lands on no element: refused when the screen has clickable elements,
      *  because what is drawn at that point is unknown to the guard (a checkout drawn on a canvas inside
-     *  an ordinary page is exactly the case); allowed on a screen with none (a game). */
-    fun requireBlindTap(snapshot: Snapshot) {
+     *  an ordinary page is exactly the case). On a screen with none (a game) the only content-level
+     *  check is a look, so the tap needs a screenshot taken on this very capture (`lookedId`); every
+     *  action installs a new capture, which is what expires the look. */
+    fun requireBlindTap(snapshot: Snapshot, lookedId: String?) {
         if (snapshot.nodes.any { it.clickable }) {
             throw guard(note("nothing in the tree is under that point; tap an element by its text"), handover = false)
+        }
+        if (lookedId == null || lookedId != snapshot.snapshotId) {
+            throw guard(note("nothing in the tree is under that point; phone_look at this screen first, then tap"), handover = false)
         }
     }
 
