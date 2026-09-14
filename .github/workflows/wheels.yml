@@ -21,6 +21,9 @@ env:
   CIBW_ARCHS: "arm64_v8a x86_64"
   CIBW_BUILD: "cp313-*"
   CIBW_BUILD_FRONTEND: "build[uv]"
+  # The import test needs an emulator; this job answers "does it build" and
+  # emulator.yml answers "does it load".
+  CIBW_TEST_SKIP: "*"
   ANDROID_API_LEVEL: "24"
   # Android requires 16 KB page alignment for targetSdk 35 on Google Play.
   CIBW_ENVIRONMENT: "LDFLAGS='-Wl,-z,max-page-size=16384' RUSTFLAGS='-C link-arg=-Wl,-z,max-page-size=16384'"
@@ -41,7 +44,10 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-      - uses: android-actions/setup-android@v3
+      # ubuntu-latest ships the Android SDK at $ANDROID_HOME; setup-android
+      # is not needed and its default package list names one the SDK
+      # no longer has ('tools'), which failed every build.
+      - uses: astral-sh/setup-uv@v6   # the build[uv] frontend
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android,x86_64-linux-android
@@ -64,6 +70,21 @@ jobs:
       - name: Build with cibuildwheel for Android
         run: |
           pip install cibuildwheel
+          # An sdist's own [tool.cibuildwheel] is written for the version its
+          # maintainers use: zstandard names the enable group
+          # "cpython-freethreading", which cibuildwheel 4 no longer knows and
+          # refuses to parse. Our settings all come from the environment, so
+          # drop the sdist's table and build from ours alone.
+          python - <<'PY'
+          import re, pathlib
+          p = pathlib.Path("src/pyproject.toml")
+          if p.exists():
+              text = p.read_text()
+              cleaned = re.sub(r"(?ms)^\[tool\.cibuildwheel(?:\.[^\]]*)?\]\n.*?(?=^\[|\Z)", "", text)
+              if cleaned != text:
+                  p.write_text(cleaned)
+                  print("dropped the sdist's [tool.cibuildwheel] tables")
+          PY
           cd src && cibuildwheel --output-dir ../wheelhouse
       - name: Check 16 KB LOAD alignment on every native library
         run: |
