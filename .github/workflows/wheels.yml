@@ -36,8 +36,8 @@ jobs:
       matrix:
         package: [pydantic-core, jiter, orjson, ormsgpack, tiktoken, uuid-utils, zstandard]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
       - uses: actions/setup-java@v4
@@ -97,7 +97,7 @@ jobs:
             if llvm-readelf -l "$so" 2>/dev/null | awk '/LOAD/ && $NF != "0x4000" && $NF != "0x10000" {found=1} END {exit !found}'; then echo "4 KB-aligned: $so"; bad=1; fi
           done
           exit $bad
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: wheels-${{ matrix.package }}
           path: wheelhouse/*.whl
@@ -105,8 +105,8 @@ jobs:
   otto-wheel:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
       - name: Build the pure-Python otto wheel from the pinned ref
@@ -115,7 +115,7 @@ jobs:
           ref=$(sed -n 's/.*@\([0-9a-f]\{7,40\}\).*/\1/p' requirements-otto-git.txt | head -1)
           git clone https://github.com/siddharth23P/otto_agent src && cd src && git checkout "${ref:-main}"
           python -m build --wheel --outdir ../wheelhouse
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: wheels-otto
           path: wheelhouse/*.whl
@@ -125,7 +125,7 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: all
       - name: Write the table
