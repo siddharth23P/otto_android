@@ -1,0 +1,50 @@
+# Nightly and on otto bumps: the bridge against the pinned otto and the last
+# three releases on PyPI, so a release that breaks the contract is known the
+# day it ships rather than when someone updates.
+name: compat
+
+on:
+  schedule:
+    - cron: "41 4 * * *"
+  workflow_dispatch:
+  pull_request:
+    paths: ["app/src/main/python/**", "requirements-otto-git.txt"]
+
+permissions:
+  contents: read
+
+jobs:
+  releases:
+    runs-on: ubuntu-latest
+    outputs:
+      versions: ${{ steps.list.outputs.versions }}
+    steps:
+      - id: list
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, urllib.request
+          try:
+              data = json.load(urllib.request.urlopen("https://pypi.org/pypi/otto-cli-agent/json"))
+              releases = [v for v in data["releases"] if tuple(int(p) for p in v.split(".")[:3] if p.isdigit()) >= (0, 2, 0)]
+              releases.sort(key=lambda v: tuple(int(p) for p in v.split(".")[:3] if p.isdigit()))
+              versions = releases[-3:] or ["git"]
+          except Exception:
+              versions = ["git"]
+          print("versions=" + json.dumps(versions))
+          PY
+  bridge:
+    needs: releases
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        otto: ${{ fromJson(needs.releases.outputs.versions) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: |
+          if [ "${{ matrix.otto }}" = "git" ]; then pip install -r requirements-otto-git.txt; else pip install "otto-cli-agent==${{ matrix.otto }}"; fi
+          pip install pytest
+      - run: pytest -q app/src/main/python/tests
