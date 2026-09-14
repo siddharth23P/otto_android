@@ -21,6 +21,9 @@ env:
   CIBW_ARCHS: "arm64_v8a x86_64"
   CIBW_BUILD: "cp313-*"
   CIBW_BUILD_FRONTEND: "build[uv]"
+  # The import test needs an emulator; this job answers "does it build" and
+  # emulator.yml answers "does it load".
+  CIBW_TEST_SKIP: "*"
   ANDROID_API_LEVEL: "24"
   # Android requires 16 KB page alignment for targetSdk 35 on Google Play.
   CIBW_ENVIRONMENT: "LDFLAGS='-Wl,-z,max-page-size=16384' RUSTFLAGS='-C link-arg=-Wl,-z,max-page-size=16384'"
@@ -42,6 +45,7 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: android-actions/setup-android@v3
+      - uses: astral-sh/setup-uv@v6   # the build[uv] frontend
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android,x86_64-linux-android
