@@ -48,8 +48,9 @@ chaquopy {
     defaultConfig {
         version = "3.13"
         // The build-time interpreter: `python3.13` on PATH (actions/setup-python
-        // in CI; pyenv or python.org locally), else Chaquopy's own lookup.
-        buildPython("python3.13", "python3")
+        // in CI; pyenv or python.org locally). One name: extra arguments are a
+        // command line to Chaquopy, not fallbacks.
+        buildPython("python3.13")
         if (embeddedPython) {
             pip {
                 options("--find-links", file("../wheels").absolutePath)
