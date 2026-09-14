@@ -42,7 +42,10 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
     private val counter = AtomicInteger()
     private var lastSnapshot: Snapshot? = null
     private var lastNodes: Map<Int, AccessibilityNodeInfo> = emptyMap()
-    private var lastCapture: Pair<Long, JsonObject>? = null
+    //: The last screenshot, with the capture it was taken on: the cache may only
+    //: answer for that same capture, and a blind tap may only follow a look at it.
+    private var lastCapture: Triple<Long, String, JsonObject>? = null
+    private var lookedId: String? = null
     lateinit var guard: PolicyGuard
     private lateinit var catalog: AppCatalog
 
@@ -133,7 +136,7 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
         // A tap by coordinates is a tap on whatever is drawn there; a point with nothing under it is
         // refused on a screen that has elements, because what is drawn there is unknown.
         val under = guard.nodeAt(current, x, y)
-        if (under == null) guard.requireBlindTap(current)
+        if (under == null) guard.requireBlindTap(current, lookedId)
         else { guard.requireTappable(under, commit = false, texts = current.nodes.map { it.label }); guard.requireTypeable(under.takeIf { it.password }) }
         if (!Gestures.dispatch(this, Gestures.tap(x, y))) throw DeviceException("the tap was not delivered", "failed")
         after("tapped $x,$y")
@@ -244,7 +247,14 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
         if (guard.packageVerdict(current.packageName, current.label).isNotEmpty()) {
             throw DeviceException(guard.packageVerdict(current.packageName, current.label), "guard", handover = true)
         }
-        lastCapture?.let { (at, json) -> if (System.currentTimeMillis() - at < 1000) return@serial json }
+        lastCapture?.let { (at, id, json) ->
+            // Only for the capture it was taken on: the screen may have moved on
+            // inside the second, and an old picture of a new screen is a lie.
+            if (id == current.snapshotId && System.currentTimeMillis() - at < 1000) {
+                lookedId = current.snapshotId
+                return@serial json
+            }
+        }
         val latch = CountDownLatch(1)
         var bitmap: Bitmap? = null
         var error = 0
@@ -274,7 +284,8 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
             put("png_b64", Base64.encodeToString(bytes, Base64.NO_WRAP))
             put("scale", if (scale < 1f) scale.toDouble() else 1.0)
         }
-        lastCapture = System.currentTimeMillis() to json
+        lastCapture = Triple(System.currentTimeMillis(), current.snapshotId, json)
+        lookedId = current.snapshotId
         json
     }
 

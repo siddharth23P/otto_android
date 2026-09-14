@@ -91,8 +91,17 @@ class PolicyGuardTest {
 
     @Test fun aBlindTapIsRefusedOnAScreenThatHasElements() {
         val chat = screen("com.whatsapp", "WhatsApp", node(1, "Type a message", editable = true), node(2, "Send", clickable = true))
-        try { guard.requireBlindTap(chat); fail("expected a refusal") } catch (e: DeviceException) { assertEquals("guard", e.code) }
-        guard.requireBlindTap(screen("com.example.game", "Blocks"))
+        try { guard.requireBlindTap(chat, chat.snapshotId); fail("expected a refusal") } catch (e: DeviceException) { assertEquals("guard", e.code) }
+        guard.requireBlindTap(screen("com.example.game", "Blocks"), "s1")
+    }
+
+    @Test fun aBlindTapOnAnElementlessScreenNeedsALookOnThatCapture() {
+        val game = screen("com.example.game", "Blocks")
+        for (looked in listOf<String?>(null, "other-id")) {
+            try { guard.requireBlindTap(game, looked); fail("expected a refusal") }
+            catch (e: DeviceException) { assertEquals("guard", e.code); assertTrue(!e.handover) }
+        }
+        guard.requireBlindTap(game, game.snapshotId)
     }
 
     @Test fun handoverBlocksUntilResume() {
