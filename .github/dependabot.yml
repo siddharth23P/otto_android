@@ -1,0 +1,19 @@
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /app/src/main/python
+    schedule:
+      interval: daily
+    allow:
+      - dependency-name: otto-cli-agent
+    labels: [otto-bump]
+    commit-message:
+      prefix: "otto"
+  - package-ecosystem: gradle
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

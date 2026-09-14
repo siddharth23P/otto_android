@@ -1,0 +1,4 @@
+# The pre-release pin. otto 0.2.0 is not on PyPI yet; the host tests and the
+# wheel job install it from the commit that introduced agent.embed and
+# agent.phone. Deleted by the first Dependabot bump once the release exists.
+otto-cli-agent @ git+https://github.com/siddharth23P/otto_agent@9985c87

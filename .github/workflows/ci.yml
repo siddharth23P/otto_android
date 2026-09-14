@@ -1,0 +1,52 @@
+# Every push and pull request: the Kotlin unit tests, the Python bridge tests
+# against the pinned otto, the guard-rules equality check, and a debug APK.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python-bridge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install otto (the git pin until 0.2.0 is on PyPI) and pytest
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements-otto-git.txt ]; then pip install -r requirements-otto-git.txt; else pip install -r app/src/main/python/requirements.txt; fi
+          pip install pytest
+      - name: Bridge tests (fake PyBridge, fake pipeline, no keys)
+        run: pytest -q app/src/main/python/tests
+      - name: Vendored guard rules equal otto's
+        run: python -c "from pathlib import Path; from agent.phone import guard; assert Path('app/src/main/assets/guard_rules.json').read_text(encoding='utf-8') == guard.rules_text(), 'copy agent/phone/assets/guard_rules.json from otto'"
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Unit tests
+        run: ./gradlew --no-daemon testDebugUnitTest
+      - name: Debug APK (embedded Python off until wheels/ is populated)
+        run: ./gradlew --no-daemon assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: otto-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
