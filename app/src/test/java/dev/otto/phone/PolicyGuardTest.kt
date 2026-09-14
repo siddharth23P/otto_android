@@ -43,12 +43,49 @@ class PolicyGuardTest {
         assertEquals(PolicyGuard.Target.PAY, guard.targetVerdict("PLACE YOUR ORDER"))
         assertEquals(PolicyGuard.Target.COMMIT, guard.targetVerdict("Send"))
         assertEquals(PolicyGuard.Target.NONE, guard.targetVerdict("Sending…"))
-        assertEquals(PolicyGuard.Target.NONE, guard.targetVerdict("Proceed to checkout"))
+        assertEquals(PolicyGuard.Target.COMMIT, guard.targetVerdict("Proceed to checkout"))  // the person's call, once
         try { guard.requireTappable(node(1, "Pay now", clickable = true), commit = true); fail("expected a guard refusal") }
         catch (e: DeviceException) { assertEquals("guard", e.code); assertTrue(e.handover) }
         try { guard.requireTappable(node(1, "Send", clickable = true), commit = false); fail("expected a refusal") }
         catch (e: DeviceException) { assertEquals("guard", e.code) }
         guard.requireTappable(node(1, "Send", clickable = true), commit = true)
+    }
+
+    @Test fun theBareWordsArePayWordsMatchedWhole() {
+        for (label in listOf("Pay", "PAY", "Buy", "Purchase", "Subscribe", "Pay ₹499", "Buy · ₹1,299", "Order now")) {
+            assertEquals(label, PolicyGuard.Target.PAY, guard.targetVerdict(label))
+        }
+        assertEquals(PolicyGuard.Target.NONE, guard.targetVerdict("Payload"))
+        assertEquals(PolicyGuard.Target.NONE, guard.targetVerdict("Buyer's guide"))
+        assertEquals(PolicyGuard.Target.NONE, guard.targetVerdict("Player"))
+    }
+
+    @Test fun aForwardWordIsAPayWordOnlyOnACheckoutScreen() {
+        val checkout = listOf("Order summary", "Amul Taaza Toned Milk 500 ml x1", "Total ₹28", "Continue")
+        assertEquals(PolicyGuard.Target.PAY, guard.targetVerdict("Continue", checkout))
+        assertEquals(PolicyGuard.Target.PAY, guard.targetVerdict("Next", listOf("Payment method", "UPI", "Next")))
+        assertEquals(PolicyGuard.Target.PAY, guard.targetVerdict("Confirm", listOf("Grand total ₹1,299", "Confirm")))
+        assertEquals(PolicyGuard.Target.NONE, guard.targetVerdict("Continue", listOf("Welcome to Blinkit", "Pick your location", "Continue")))
+        assertEquals(PolicyGuard.Target.COMMIT, guard.targetVerdict("Confirm", listOf("Delete this chat?", "Confirm")))
+        assertEquals(PolicyGuard.Target.NONE, guard.targetVerdict("Continue"))
+        assertEquals("Order summary", guard.checkoutContext(checkout))
+        assertEquals("", guard.checkoutContext(listOf("Step 2 of 3")))
+        try { guard.requireTappable(node(1, "Continue", clickable = true), commit = true, texts = checkout); fail("expected a guard refusal") }
+        catch (e: DeviceException) { assertTrue(e.handover) }
+    }
+
+    @Test fun lookAlikeLettersFromOtherScriptsDoNotHideAWord() {
+        assertEquals(PolicyGuard.Target.PAY, guard.targetVerdict("P\u0430y now"))      // Cyrillic а
+        assertEquals(PolicyGuard.Target.COMMIT, guard.targetVerdict("\u0405end"))      // Cyrillic Ѕ
+        assertEquals(PolicyGuard.Target.PAY, guard.targetVerdict("\u0392uy"))          // Greek Β
+        assertTrue(guard.packageVerdict("com.example.b\u0430nk", "").isNotEmpty())
+        assertEquals("pay", guard.normal("P\u0430y"))
+    }
+
+    @Test fun aBlindTapIsRefusedOnAScreenThatHasElements() {
+        val chat = screen("com.whatsapp", "WhatsApp", node(1, "Type a message", editable = true), node(2, "Send", clickable = true))
+        try { guard.requireBlindTap(chat); fail("expected a refusal") } catch (e: DeviceException) { assertEquals("guard", e.code) }
+        guard.requireBlindTap(screen("com.example.game", "Blocks"))
     }
 
     @Test fun handoverBlocksUntilResume() {

@@ -13,8 +13,14 @@ import dev.otto.phone.access.UiNode
  *  2. a sensitive pattern with a second signal (an input field asking for
  *     it, a money-worded package, a secure window): hand over
  *  3. a password field: never typed into
- *  4. a pay word on the target: never tapped; a commit word: only through
- *     phone_commit
+ *  4. a pay word on the target ("Pay now", and the bare "Pay", "Buy"): never
+ *     tapped; a forward word ("Continue", "Next") next to a checkout signal
+ *     (a total, "payment"): the same; a commit word ("Send", "Checkout"):
+ *     only through phone_commit
+ *  4b. a tap by coordinates that lands on no element: refused on a screen
+ *     that has clickable elements, because what is drawn there is unknown
+ *  4c. enter is the keyboard's submit, judged like a tap; back/home/recents
+ *     are the way out
  *  5. the person's own switch, and the hand-over state that only the
  *     person's Resume tap clears
  */
@@ -31,7 +37,9 @@ class PolicyGuard(val rules: GuardRules) {
      *  same normalisation as otto's guard.normal(), so the two sides read one screen the same way. */
     fun normal(text: String): String {
         val folded = java.text.Normalizer.normalize(text, java.text.Normalizer.Form.NFKC)
-        return folded.replace(INVISIBLE, "").lowercase().trim().split(Regex("\\s+")).filter { it.isNotEmpty() }.joinToString(" ")
+        val lowered = folded.replace(INVISIBLE, "").lowercase()
+        val latin = buildString(lowered.length) { for (ch in lowered) append(CONFUSABLES[ch] ?: ch) }
+        return latin.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }.joinToString(" ")
     }
 
     fun packageVerdict(packageName: String, label: String = ""): String {
@@ -63,12 +71,25 @@ class PolicyGuard(val rules: GuardRules) {
         return "this looks like a payment or sign-in screen ('${matches.first()}' with ${reasons.joinToString(", ")}) -- the person takes over here"
     }
 
-    fun targetVerdict(label: String): Target {
+    private fun whole(word: String, text: String) = Regex("(^|\\W)" + Regex.escape(word) + "($|\\W)").containsMatchIn(text)
+
+    /** The first screen string that says this is a checkout (a total, "payment", a card field), or "". */
+    fun checkoutContext(texts: Iterable<String>): String =
+        texts.firstOrNull { t -> normal(t).let { n -> n.isNotEmpty() && rules.checkoutSignals.any { it.matcher(n).find() } } }?.take(60) ?: ""
+
+    /** `texts` are the other strings on the screen: a forward word is a pay word only next to a checkout signal. */
+    fun targetVerdict(label: String, texts: Iterable<String> = emptyList()): Target {
         val text = normal(label)
         if (text.isEmpty()) return Target.NONE
+        // A phrase matches as a substring, and with every space removed; a single word matches whole
+        // ("Pay", "Pay ₹499", not "Payload"). A pay word may over-match; it only ever refuses.
         val squashed = text.replace(" ", "")
-        if (rules.payWords.any { it in text || it.replace(" ", "") in squashed }) return Target.PAY
-        if (rules.commitWords.any { Regex("(^|\\W)" + Regex.escape(it) + "($|\\W)").containsMatchIn(text) }) return Target.COMMIT
+        for (word in rules.payWords) {
+            val hit = if (" " in word) word in text || word.replace(" ", "") in squashed else whole(word, text)
+            if (hit) return Target.PAY
+        }
+        if (rules.forwardWords.any { whole(it, text) || (" " in it && it in text) } && checkoutContext(texts).isNotEmpty()) return Target.PAY
+        if (rules.commitWords.any { whole(it, text) }) return Target.COMMIT
         return Target.NONE
     }
 
@@ -81,11 +102,20 @@ class PolicyGuard(val rules: GuardRules) {
         if (why.isNotEmpty()) { handedOver = true; throw guard(note(why), handover = true) }
     }
 
-    fun requireTappable(node: UiNode, commit: Boolean) {
-        when (targetVerdict(node.label)) {
+    fun requireTappable(node: UiNode, commit: Boolean, texts: Iterable<String> = emptyList()) {
+        when (targetVerdict(node.label, texts)) {
             Target.PAY -> { handedOver = true; throw guard(note("'${node.label}' is a payment step -- the person does that"), handover = true) }
             Target.COMMIT -> if (!commit) throw guard(note("'${node.label}' cannot be taken back; only phone_commit may tap it"), handover = false)
             Target.NONE -> Unit
+        }
+    }
+
+    /** A tap by coordinates that lands on no element: refused when the screen has clickable elements,
+     *  because what is drawn at that point is unknown to the guard (a checkout drawn on a canvas inside
+     *  an ordinary page is exactly the case); allowed on a screen with none (a game). */
+    fun requireBlindTap(snapshot: Snapshot) {
+        if (snapshot.nodes.any { it.clickable }) {
+            throw guard(note("nothing in the tree is under that point; tap an element by its text"), handover = false)
         }
     }
 
@@ -103,5 +133,15 @@ class PolicyGuard(val rules: GuardRules) {
 
     companion object {
         val INVISIBLE = Regex("[\\u200B-\\u200F\\u2060-\\u2064\\u00AD\\uFEFF\\u202A-\\u202E\\u2066-\\u2069]")
+
+        /** Cyrillic and Greek letters that draw the same as a Latin one, folded after lower-casing --
+         *  the same table as otto's guard._CONFUSABLES, so "Pаy now" with a Cyrillic а is "pay now". */
+        val CONFUSABLES: Map<Char, Char> = mapOf(
+            'а' to 'a', 'е' to 'e', 'о' to 'o', 'р' to 'p', 'с' to 'c', 'у' to 'y', 'х' to 'x', 'і' to 'i',
+            'ј' to 'j', 'ѕ' to 's', 'һ' to 'h', 'ԁ' to 'd', 'ԛ' to 'q', 'ԝ' to 'w', 'ѵ' to 'v', 'ԍ' to 'g',
+            'ӏ' to 'l', 'к' to 'k', 'т' to 't', 'м' to 'm', 'в' to 'b', 'н' to 'h', 'ь' to 'b', 'ѡ' to 'w',
+            'α' to 'a', 'ο' to 'o', 'ρ' to 'p', 'ν' to 'v', 'ι' to 'i', 'κ' to 'k', 'υ' to 'u', 'τ' to 't',
+            'ε' to 'e', 'β' to 'b', 'χ' to 'x', 'γ' to 'y', 'ς' to 's',
+        )
     }
 }

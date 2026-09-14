@@ -130,8 +130,11 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
     override fun tap(x: Int, y: Int): JsonObject = serial {
         val current = lastSnapshot ?: snapshotNow()
         guard.requireActionable(current)
-        // A tap by coordinates is a tap on whatever is drawn there.
-        guard.nodeAt(current, x, y)?.let { under -> guard.requireTappable(under, commit = false); guard.requireTypeable(under.takeIf { it.password }) }
+        // A tap by coordinates is a tap on whatever is drawn there; a point with nothing under it is
+        // refused on a screen that has elements, because what is drawn there is unknown.
+        val under = guard.nodeAt(current, x, y)
+        if (under == null) guard.requireBlindTap(current)
+        else { guard.requireTappable(under, commit = false, texts = current.nodes.map { it.label }); guard.requireTypeable(under.takeIf { it.password }) }
         if (!Gestures.dispatch(this, Gestures.tap(x, y))) throw DeviceException("the tap was not delivered", "failed")
         after("tapped $x,$y")
     }
@@ -139,7 +142,7 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
     override fun tapNode(snapshotId: String, node: Int, long: Boolean, commit: Boolean): JsonObject = serial {
         guard.requireActionable(lastSnapshot)
         val (ui, info) = requireNode(snapshotId, node)
-        guard.requireTappable(ui, commit)
+        guard.requireTappable(ui, commit, texts = lastSnapshot?.nodes?.map { it.label } ?: emptyList())
         val action = if (long) AccessibilityNodeInfo.ACTION_LONG_CLICK else AccessibilityNodeInfo.ACTION_CLICK
         val done = info.performAction(action) || Gestures.dispatch(this, Gestures.tap(ui.centreX, ui.centreY, long))
         if (!done) throw DeviceException("could not tap [$node] '${ui.label}'", "failed")
@@ -183,6 +186,9 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
     }
 
     override fun press(key: String): JsonObject = serial {
+        // Back, home and recents are the way out and always allowed; enter is the keyboard's
+        // submit for the focused field and is judged like a tap on this screen.
+        if (key == "enter") guard.requireActionable(lastSnapshot ?: snapshotNow())
         val ok = when (key) {
             "back" -> performGlobalAction(GLOBAL_ACTION_BACK)
             "home" -> performGlobalAction(GLOBAL_ACTION_HOME)

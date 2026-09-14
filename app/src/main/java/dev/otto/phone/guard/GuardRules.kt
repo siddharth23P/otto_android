@@ -16,6 +16,8 @@ class GuardRules private constructor(
     val packageWordExceptions: List<String>,
     val sensitivePatterns: List<Pattern>,
     val payWords: List<String>,
+    val forwardWords: List<String>,
+    val checkoutSignals: List<Pattern>,
     val commitWords: List<String>,
     val settingsPages: List<String>,
 ) {
@@ -31,6 +33,8 @@ class GuardRules private constructor(
                 packageWordExceptions = list("package_word_exceptions").map { it.lowercase() },
                 sensitivePatterns = list("sensitive_patterns").map { Pattern.compile(it, Pattern.CASE_INSENSITIVE) },
                 payWords = list("pay_words").map { it.lowercase() },
+                forwardWords = list("forward_words").map { it.lowercase() },
+                checkoutSignals = list("checkout_signals").map { Pattern.compile(it, Pattern.CASE_INSENSITIVE) },
                 commitWords = list("commit_words").map { it.lowercase() },
                 settingsPages = list("settings_pages"),
             )
