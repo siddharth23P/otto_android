@@ -40,6 +40,11 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+      # Chaquopy compiles the app's Python with a build-time interpreter of
+      # the same version as the one it embeds.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
       - uses: gradle/actions/setup-gradle@v4
       - name: Unit tests
         run: ./gradlew --no-daemon testDebugUnitTest
