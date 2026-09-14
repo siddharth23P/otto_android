@@ -16,7 +16,9 @@ object SettingsPages {
             "apps" -> Settings.ACTION_APPLICATION_SETTINGS
             "sound" -> Settings.ACTION_SOUND_SETTINGS
             "battery" -> Settings.ACTION_BATTERY_SAVER_SETTINGS
-            "notifications" -> Settings.ACTION_NOTIFICATION_SETTINGS
+            // No Settings.ACTION_* constant exists for the system-wide page;
+            // the string action is what the Settings app registers.
+            "notifications" -> "android.settings.NOTIFICATION_SETTINGS"
             "accessibility" -> Settings.ACTION_ACCESSIBILITY_SETTINGS
             "location" -> Settings.ACTION_LOCATION_SOURCE_SETTINGS
             "storage" -> Settings.ACTION_INTERNAL_STORAGE_SETTINGS
