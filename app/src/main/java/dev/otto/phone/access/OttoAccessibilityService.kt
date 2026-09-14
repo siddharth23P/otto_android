@@ -188,7 +188,11 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
     override fun press(key: String): JsonObject = serial {
         // Back, home and recents are the way out and always allowed; enter is the keyboard's
         // submit for the focused field and is judged like a tap on this screen.
-        if (key == "enter") guard.requireActionable(lastSnapshot ?: snapshotNow())
+        if (key == "enter") {
+            val current = lastSnapshot ?: snapshotNow()
+            guard.requireActionable(current)
+            guard.requireSubmit(current)
+        }
         val ok = when (key) {
             "back" -> performGlobalAction(GLOBAL_ACTION_BACK)
             "home" -> performGlobalAction(GLOBAL_ACTION_HOME)

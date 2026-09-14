@@ -117,6 +117,17 @@ class PolicyGuard(val rules: GuardRules) {
         }
     }
 
+    /** Enter has no label to judge, so the screen is judged instead: a checkout signal, or any pay
+     *  button on it, is what Enter would submit. */
+    fun requireSubmit(snapshot: Snapshot) {
+        val texts = snapshot.nodes.map { it.label }
+        val seen = checkoutContext(texts)
+        if (seen.isNotEmpty()) { handedOver = true; throw guard(note("this screen is a checkout ('$seen'); Enter would submit it -- the person does that"), handover = true) }
+        texts.firstOrNull { targetVerdict(it) == Target.PAY }?.let {
+            handedOver = true; throw guard(note("this screen has a payment step ('${it.take(60)}'); Enter would submit it -- the person does that"), handover = true)
+        }
+    }
+
     fun requireTypeable(node: UiNode?) {
         if (node != null && node.password) throw guard(note("that is a password field -- the person types there"), handover = true)
     }

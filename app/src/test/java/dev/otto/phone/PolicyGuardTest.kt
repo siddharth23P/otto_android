@@ -83,6 +83,12 @@ class PolicyGuardTest {
         assertEquals("pay", guard.normal("P\u0430y"))
     }
 
+    @Test fun enterIsJudgedByTheScreenItWouldSubmit() {
+        val checkout = screen("com.example.shop", "Shop", node(1, "Qty"), node(2, "2", editable = true), node(3, "Total ₹56"), node(4, "Pay", clickable = true))
+        try { PolicyGuard(rules).requireSubmit(checkout); fail("expected a refusal") } catch (e: DeviceException) { assertTrue(e.handover) }
+        PolicyGuard(rules).requireSubmit(screen("com.whatsapp", "WhatsApp", node(1, "Type a message", editable = true), node(2, "Send", clickable = true)))
+    }
+
     @Test fun aBlindTapIsRefusedOnAScreenThatHasElements() {
         val chat = screen("com.whatsapp", "WhatsApp", node(1, "Type a message", editable = true), node(2, "Send", clickable = true))
         try { guard.requireBlindTap(chat); fail("expected a refusal") } catch (e: DeviceException) { assertEquals("guard", e.code) }
