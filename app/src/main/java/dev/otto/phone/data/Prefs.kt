@@ -7,7 +7,9 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -25,6 +27,7 @@ class Prefs(private val context: Context) {
         val serveToken = stringPreferencesKey("serve_token_enc")
         val vendorKeys = stringPreferencesKey("vendor_keys_enc")    // JSON object, encrypted
         val allowedToAct = booleanPreferencesKey("allowed_to_act")
+        val theme = stringPreferencesKey("theme")                  // "system" | "studio" | "paper"
     }
 
     suspend fun disclosureAccepted(): Boolean = context.store.data.first()[Keys.disclosure] ?: false
@@ -41,6 +44,10 @@ class Prefs(private val context: Context) {
 
     suspend fun allowedToAct(): Boolean = context.store.data.first()[Keys.allowedToAct] ?: true
     suspend fun setAllowedToAct(value: Boolean) { context.store.edit { it[Keys.allowedToAct] = value } }
+
+    /** The Settings override for Studio/Paper; "system" follows the phone's dark mode. */
+    val theme: Flow<String> get() = context.store.data.map { it[Keys.theme] ?: "system" }
+    suspend fun setTheme(value: String) { context.store.edit { it[Keys.theme] = value } }
 
     /** Vendor keys as a map; values are decrypted only here and handed to Python's environment. */
     suspend fun vendorKeys(): Map<String, String> {
