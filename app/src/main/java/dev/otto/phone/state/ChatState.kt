@@ -85,6 +85,9 @@ sealed interface ChatAction {
     data class Answered(val text: String, val nowMs: Long) : ChatAction
     data class Renamed(val title: String) : ChatAction
     data class UsageLoaded(val usage: SessionUsage) : ChatAction
+    /** A request beside the turn failed (an answer that did not arrive, a session that would not
+     *  open): a system row in the server's words, with the running turn left alone. */
+    data class Notice(val code: String, val message: String, val nowMs: Long) : ChatAction
 }
 
 /** The new entries in a bounded, rotating log: whatever follows the longest overlap between the end
@@ -121,6 +124,7 @@ object ChatReducer {
         is ChatAction.Renamed -> state.copy(title = action.title)
         is ChatAction.UsageLoaded -> state.copy(usage = action.usage.usage, title = action.usage.title.ifEmpty { state.title },
             turns = if (action.usage.turns != 0) action.usage.turns else state.turns)
+        is ChatAction.Notice -> state.copy(blocks = state.blocks + ChatBlock.System(action.message, action.code, atMs = action.nowMs))
         is ChatAction.Event -> event(state, action)
     }
 
