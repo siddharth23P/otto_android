@@ -23,6 +23,7 @@ import dev.otto.phone.bridge.DeviceException
 import dev.otto.phone.bridge.DeviceOps
 import dev.otto.phone.bridge.PyBridge
 import dev.otto.phone.bridge.doneWith
+import dev.otto.phone.data.Prefs
 import dev.otto.phone.device.AppCatalog
 import dev.otto.phone.device.PlayStore
 import dev.otto.phone.device.SettingsPages
@@ -71,7 +72,7 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
     private lateinit var catalog: AppCatalog
     /** Lives as long as the service: follows the agent's events for the status strip. */
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private var overlay: StatusOverlay? = null
+    private var overlay: AgentOverlay? = null
     /** The package and page a screenshot was refused on as a protected window: that page is secure. */
     @Volatile private var securePage: Pair<String, Long>? = null
     private var dumpReceiver: BroadcastReceiver? = null
@@ -82,9 +83,10 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
         catalog = AppCatalog(this)
         instance = this
         PyBridge.ops = this
-        val strip = StatusOverlay(this) { rootInActiveWindow?.packageName?.toString() == packageName }
+        val strip = AgentOverlay(this) { rootInActiveWindow?.packageName?.toString() == packageName }
         overlay = strip
         scope.launch { EventBus.events.collect(strip::onEvent) }
+        scope.launch { Prefs(this@OttoAccessibilityService).theme.collect(strip::setTheme) }
         if (BuildConfig.DEBUG) registerDumpReceiver()
     }
 
