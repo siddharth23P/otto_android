@@ -2,6 +2,9 @@ package dev.otto.phone.access
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.content.BroadcastReceiver
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -15,6 +18,7 @@ import android.view.inputmethod.EditorInfo
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
+import dev.otto.phone.BuildConfig
 import dev.otto.phone.bridge.DeviceException
 import dev.otto.phone.bridge.DeviceOps
 import dev.otto.phone.bridge.PyBridge
@@ -68,6 +72,9 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
     /** Lives as long as the service: follows the agent's events for the status strip. */
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var overlay: StatusOverlay? = null
+    /** The package and page a screenshot was refused on as a protected window: that page is secure. */
+    @Volatile private var securePage: Pair<String, Long>? = null
+    private var dumpReceiver: BroadcastReceiver? = null
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -78,11 +85,53 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
         val strip = StatusOverlay(this) { rootInActiveWindow?.packageName?.toString() == packageName }
         overlay = strip
         scope.launch { EventBus.events.collect(strip::onEvent) }
+        if (BuildConfig.DEBUG) registerDumpReceiver()
+    }
+
+    /**
+     * Debug builds only: `adb shell am broadcast -a dev.otto.phone.DUMP_TREE --es name cart` writes the
+     * screen in front, as Otto would be sent it, plus the windows on screen, to files/dumps/cart.json
+     * (read it with `run-as`). Only a sender holding DUMP -- adb's shell, never an app -- may ask.
+     */
+    private fun registerDumpReceiver() {
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                val name = (intent.getStringExtra("name") ?: "dump").replace(Regex("[^A-Za-z0-9_-]"), "_").take(40)
+                val pending = goAsync()
+                actions.execute {
+                    try {
+                        val snapshot = snapshotNow(keep = false)
+                        val json = buildJsonObject {
+                            put("snapshot", snapshot.toJson())
+                            put("windows", JsonArray(windows.map { w ->
+                                buildJsonObject {
+                                    put("type", w.type); put("title", w.title?.toString() ?: ""); put("active", w.isActive)
+                                    put("package", w.root?.packageName?.toString() ?: "")
+                                }
+                            }))
+                        }
+                        val dir = java.io.File(filesDir, "dumps").apply { mkdirs() }
+                        java.io.File(dir, "$name.json").writeText(json.toString())
+                        pending.resultData = "wrote dumps/$name.json"
+                    } catch (e: Exception) {
+                        pending.resultData = "failed: ${e.message}"
+                    } finally {
+                        pending.finish()
+                    }
+                }
+            }
+        }
+        val filter = IntentFilter(DUMP_ACTION)
+        if (Build.VERSION.SDK_INT >= 33) registerReceiver(receiver, filter, android.Manifest.permission.DUMP, null, Context.RECEIVER_EXPORTED)
+        else registerReceiver(receiver, filter, android.Manifest.permission.DUMP, null)
+        dumpReceiver = receiver
     }
 
     override fun onDestroy() {
         if (instance === this) { instance = null; PyBridge.ops = DeviceOps.Unavailable }
         scope.cancel()
+        dumpReceiver?.let { runCatching { unregisterReceiver(it) } }
+        dumpReceiver = null
         overlay?.destroy()
         overlay = null
         actions.shutdownNow()
@@ -109,7 +158,7 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
             if (strip.showing && pkg == packageName && kind != Kind.WINDOWS) return
             if (kind == Kind.WINDOWS && stripMoved) return
         }
-        log.record(kind, pkg, at)
+        log.record(kind, pkg, at, if (kind == Kind.STATE) event.className?.toString() ?: "" else "")
     }
 
     override fun onInterrupt() = Unit
@@ -132,17 +181,22 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
         val takenAt = SystemClock.uptimeMillis()
         val root = rootInActiveWindow ?: throw DeviceException("no window is in front to read", "failed")
         val nodes = mutableMapOf<Int, AccessibilityNodeInfo>()
-        val walked = TreeWalker.walk(AndroidWalkNode(root)) { index, node -> nodes[index] = (node as AndroidWalkNode).info }
+        val offscreen = mutableListOf<String>()
+        val walked = TreeWalker.walk(AndroidWalkNode(root), offscreenIds = offscreen, wantId = TreeWalker::pageId) { index, node ->
+            nodes[index] = (node as AndroidWalkNode).info
+        }
         val metrics = resources.displayMetrics
         val pkg = root.packageName?.toString() ?: ""
-        // FLAG_SECURE is not visible to accessibility: the screenshot path reports a secure window, so the
-        // walk no longer fetches every app window's root to learn nothing.
-        val secure = false
+        val page = log.pageOf(pkg)
+        // FLAG_SECURE is not visible to accessibility: only a refused screenshot says a window is protected,
+        // and it stays so for that page -- until the app opens another.
+        val secure = securePage == (pkg to page.seq)
         val keyboard = windows.any { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }
         val snapshot = Snapshot(
             snapshotId = "s${counter.incrementAndGet()}", packageName = pkg, label = catalog.label(pkg),
             width = metrics.widthPixels, height = metrics.heightPixels, keyboard = keyboard, secure = secure, nodes = walked,
             takenAt = takenAt, settled = settled,
+            page = PageInfo(page.seq, page.activity, offscreen),
         )
         if (keep) { lastSnapshot = snapshot; lastNodes = nodes }
         return snapshot
@@ -464,6 +518,7 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
         }
         val shot = bitmap ?: when (error) {
             ERROR_TAKE_SCREENSHOT_SECURE_WINDOW -> {
+                securePage = current.packageName to log.pageOf(current.packageName).seq
                 guard.handedOver = true
                 throw DeviceException("this window is protected (secure content) -- the person takes over", "guard", handover = true)
             }
@@ -562,6 +617,7 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
         @Volatile var instance: OttoAccessibilityService? = null
         /** The second look after a scroll whose screen was still changing: no minimum, 600 ms at most. */
         private val LATE_SCROLL = SettlePolicy.SCROLL.copy(minMs = 0, capMs = 600)
+        const val DUMP_ACTION = "dev.otto.phone.DUMP_TREE"
     }
 }
 
@@ -583,6 +639,10 @@ private class AndroidWalkNode(val info: AccessibilityNodeInfo) : WalkNode {
     override val isCheckable: Boolean get() = info.isCheckable
     override val isChecked: Boolean get() = info.isChecked
     override val viewId: String get() = info.viewIdResourceName ?: ""
+    override val hint: String get() = info.hintText?.toString() ?: ""
+    override val inputType: Int get() = info.inputType
+    override val maxTextLength: Int get() = info.maxTextLength
+    override val isHeading: Boolean get() = info.isHeading
     override fun boundsOnScreen(): IntArray {
         val r = android.graphics.Rect(); info.getBoundsInScreen(r)
         return intArrayOf(r.left, r.top, r.right, r.bottom)

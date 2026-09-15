@@ -24,6 +24,13 @@ data class UiNode(
     /** The resource id, the app's package prefix dropped. A web page's form buttons can all read
      *  "Submit" and say what they do only here (Amazon's add-to-cart-button, buy-now-button). */
     val viewId: String = "",
+    /** An editable field's hint, what it asks for. Editable fields only. */
+    val hint: String = "",
+    /** TreeWalker.inputKind of an editable field: pw, numpw, num, phone, email, text; "" unknown. */
+    val inputKind: String = "",
+    /** An editable field's longest input, -1 unlimited. */
+    val maxLength: Int = -1,
+    val heading: Boolean = false,
 ) {
     val label: String get() = text.ifBlank { desc }.trim()
     val centreX: Int get() = (left + right) / 2
@@ -35,6 +42,30 @@ data class UiNode(
         put("c", clickable); put("e", editable); put("s", scrollable); put("p", password); put("f", focused)
         put("k", checked?.let { JsonPrimitive(it) } ?: JsonNull)
         put("v", viewId)
+        // Only when set, so every screen before these existed reads the same.
+        if (hint.isNotEmpty()) put("h", hint)
+        if (inputKind.isNotEmpty()) put("n", inputKind)
+        if (maxLength > 0) put("m", maxLength)
+        if (heading) put("g", true)
+    }
+}
+
+/**
+ * What the screen as a whole is, beyond its nodes. `seq` counts the package's own window changes, so a
+ * judgement of this page can be held while it scrolls and dropped when a new one opens; `activity` is
+ * the class the app named for its window; `offscreenIds` are ids of elements not on screen; `kind` is
+ * the phone guard's class for this page, "" before it has judged one.
+ */
+data class PageInfo(
+    val seq: Long,
+    val activity: String,
+    val offscreenIds: List<String> = emptyList(),
+    val kind: String = "",
+) {
+    fun toJson(): JsonObject = buildJsonObject {
+        put("seq", seq); put("activity", activity)
+        put("offscreen_ids", JsonArray(offscreenIds.map { JsonPrimitive(it) }))
+        if (kind.isNotEmpty()) put("kind", kind)
     }
 }
 
@@ -51,12 +82,14 @@ data class Snapshot(
     val nodes: List<UiNode>,
     val takenAt: Long = 0,
     val settled: Boolean = true,
+    val page: PageInfo? = null,
 ) {
     fun toJson(): JsonObject = buildJsonObject {
         put("snapshot_id", snapshotId)
         put("app", buildJsonObject { put("package", packageName); put("label", label) })
         put("screen", buildJsonObject { put("w", width); put("h", height) })
         put("keyboard", keyboard); put("secure", secure); put("settled", settled)
+        page?.let { put("page", it.toJson()) }
         put("nodes", JsonArray(nodes.map { it.toJson() }))
     }
 

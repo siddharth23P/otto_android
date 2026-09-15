@@ -1,5 +1,6 @@
 package dev.otto.phone.access
 
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
@@ -16,7 +17,12 @@ class EventLog {
     private val seq = AtomicLong(0)
     private val statePkg = AtomicReference(Stamp("", NEVER))
 
+    private val pages = ConcurrentHashMap<String, Page>()
+
     private data class Stamp(val pkg: String, val at: Long)
+
+    /** A package's own window changes so far, and the class it last named for its window. */
+    data class Page(val seq: Long, val activity: String)
 
     val lastAnyAt: Long get() = anyAt.get()
     /** The last window change (a new activity, dialog or window), from any package. */
@@ -25,7 +31,8 @@ class EventLog {
     /** The package of the last window-state change that named one. */
     val lastStatePkg: String get() = statePkg.get().pkg
 
-    fun record(kind: Kind, pkg: String, at: Long) {
+    /** `className` is the class a window-state change names: the activity, dialog or pane that arrived. */
+    fun record(kind: Kind, pkg: String, at: Long, className: String = "") {
         // The status bar's clock and icons redraw all the time and say nothing about the app; a
         // notification shade or a system dialog opening does.
         if ((kind == Kind.CONTENT || kind == Kind.SCROLL) && pkg == SYSTEM_UI) return
@@ -34,9 +41,18 @@ class EventLog {
             stateAt.accumulateAndGet(at, ::maxOf)
             seq.incrementAndGet()
             // A windows-changed event names no package: only a state change says who is in front.
-            if (kind == Kind.STATE && pkg.isNotEmpty()) statePkg.set(Stamp(pkg, at))
+            if (kind == Kind.STATE && pkg.isNotEmpty()) {
+                statePkg.set(Stamp(pkg, at))
+                // Counted per package: the keyboard or the status bar opening is not the app's page changing.
+                pages.compute(pkg) { _, was ->
+                    Page((was?.seq ?: 0) + 1, className.take(MAX_ACTIVITY).ifEmpty { was?.activity ?: "" })
+                }
+            }
         }
     }
+
+    /** The page `pkg` is on: how many window changes it has made, and what it named the last one. */
+    fun pageOf(pkg: String): Page = pages[pkg] ?: Page(0, "")
 
     /** Whether `pkg` changed its window at or after `since`. */
     fun stateSeenFor(pkg: String, since: Long): Boolean = statePkg.get().let { it.pkg == pkg && it.at >= since }
@@ -47,6 +63,7 @@ class EventLog {
     companion object {
         const val NEVER = Long.MIN_VALUE
         const val SYSTEM_UI = "com.android.systemui"
+        const val MAX_ACTIVITY = 120
     }
 }
 
