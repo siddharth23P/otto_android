@@ -104,5 +104,8 @@ class SettleTest {
         assertEquals(EventLog.SYSTEM_UI, log.lastStatePkg)
         assertEquals(2, log.stateSeq)
         assertFalse(log.stateSeenFor(EventLog.SYSTEM_UI, 121))
+        assertTrue(log.stateSeenOtherThan("com.example.shop", 120))
+        assertFalse(log.stateSeenOtherThan(EventLog.SYSTEM_UI, 100))
+        assertFalse(log.stateSeenOtherThan("com.example.shop", 121))
     }
 }

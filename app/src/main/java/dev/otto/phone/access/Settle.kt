@@ -41,6 +41,9 @@ class EventLog {
     /** Whether `pkg` changed its window at or after `since`. */
     fun stateSeenFor(pkg: String, since: Long): Boolean = statePkg.get().let { it.pkg == pkg && it.at >= since }
 
+    /** Whether a package other than `pkg` changed its window at or after `since`: something else came to the front. */
+    fun stateSeenOtherThan(pkg: String, since: Long): Boolean = statePkg.get().let { it.pkg.isNotEmpty() && it.pkg != pkg && it.at >= since }
+
     companion object {
         const val NEVER = Long.MIN_VALUE
         const val SYSTEM_UI = "com.android.systemui"
