@@ -1,45 +1,29 @@
 package dev.otto.phone.transport
 
+import dev.otto.phone.protocol.Frames
+import dev.otto.phone.protocol.Protocol
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.buildJsonArray
-import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.put
-import kotlinx.serialization.json.Json
 
-/** Frames for `otto serve` (agent/server/protocol.py), as pure functions. */
+/** Frames for `otto serve`, as pure functions. A facade over protocol/Frames kept for its callers. */
 object ServeProtocol {
-    const val PROTOCOL_VERSION = 1
+    const val PROTOCOL_VERSION = Frames.HELLO_PROTOCOL_VERSION
 
-    fun hello(token: String, device: String): String = buildJsonObject {
-        put("type", "hello"); put("protocol_version", PROTOCOL_VERSION); put("token", token); put("device", device)
-        put("capabilities", buildJsonArray { add(kotlinx.serialization.json.JsonPrimitive("phone")) })
-    }.toString()
+    fun hello(token: String, device: String): String = Frames.hello(token, device)
 
-    fun turn(sessionId: String?, text: String): String = buildJsonObject {
-        put("type", "turn"); if (sessionId != null) put("session_id", sessionId); put("text", text)
-    }.toString()
+    fun turn(sessionId: String?, text: String): String = Frames.turn(sessionId, text)
 
-    fun answer(sessionId: String, threadId: String, text: String): String = buildJsonObject {
-        put("type", "answer"); put("session_id", sessionId); put("thread_id", threadId); put("text", text)
-    }.toString()
+    fun answer(sessionId: String, threadId: String, text: String): String = Frames.answer(sessionId, threadId, text)
 
-    fun cancel(sessionId: String): String = buildJsonObject { put("type", "cancel"); put("session_id", sessionId) }.toString()
+    fun cancel(sessionId: String): String = Frames.cancel(sessionId)
 
-    fun sessions(op: String, ref: String? = null, sessionId: String? = null): String = buildJsonObject {
-        put("type", "sessions"); put("op", op)
-        if (ref != null) put("ref", ref); if (sessionId != null) put("session_id", sessionId)
-    }.toString()
+    fun sessions(op: String, ref: String? = null, sessionId: String? = null): String = Frames.sessions(op, ref, sessionId)
 
-    fun deviceResult(id: Int, envelope: JsonObject): String = buildJsonObject {
-        put("type", "device_result"); put("id", id)
-        envelope.forEach { (k, v) -> put(k, v) }
-    }.toString()
+    fun deviceResult(id: Int, envelope: JsonObject): String = Frames.deviceResult(id, envelope)
 
-    fun parse(frame: String): JsonObject? = runCatching { Json.parseToJsonElement(frame).jsonObject }.getOrNull()
+    fun parse(frame: String): JsonObject? = Protocol.parse(frame)
 
     fun type(frame: JsonObject): String = frame["type"]?.jsonPrimitive?.content ?: ""
 
