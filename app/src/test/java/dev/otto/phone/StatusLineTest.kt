@@ -55,7 +55,8 @@ class StatusLineTest {
 
     @Test fun eventsItDoesNotKnowChangeNothing() {
         val line = StatusLine().then(started, """{"type":"progress","kind":"tool","text":"Typing"}""")
-        assertEquals(line, line.then("""{"type":"usage","calls":3}""", """{"no_type":true}"""))
+        // A Stop from the notification is only a request: the strip goes when the turn's error arrives.
+        assertEquals(line, line.then("""{"type":"cancel_request"}""", """{"type":"usage","calls":3}""", """{"no_type":true}"""))
     }
 
     @Test fun stepsAreOneLineAndCutToAboutTwoLines() {

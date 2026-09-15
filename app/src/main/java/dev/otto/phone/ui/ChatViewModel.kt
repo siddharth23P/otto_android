@@ -214,6 +214,8 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 OttoForegroundService.stop(getApplication())
                 refreshService()
             }
+            // Stop in the notification, from outside the chat: the same cancel as the Stop button.
+            "cancel_request" -> stop()
         }
         OttoAccessibilityService.instance?.guard?.let { g -> _state.update { it.copy(handedOver = g.handedOver, guardLog = g.log.toList().takeLast(20)) } }
     }
