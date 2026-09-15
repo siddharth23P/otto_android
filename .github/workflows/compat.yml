@@ -22,14 +22,43 @@ jobs:
       - id: list
         run: |
           python - <<'PY' >> "$GITHUB_OUTPUT"
-          import json, urllib.request
-          try:
-              data = json.load(urllib.request.urlopen("https://pypi.org/pypi/otto-cli-agent/json"))
-              releases = [v for v in data["releases"] if tuple(int(p) for p in v.split(".")[:3] if p.isdigit()) >= (0, 2, 0)]
-              releases.sort(key=lambda v: tuple(int(p) for p in v.split(".")[:3] if p.isdigit()))
-              versions = releases[-3:] or ["git"]
-          except Exception:
+          import json, sys, time, urllib.error, urllib.request
+
+          URL = "https://pypi.org/pypi/otto-cli-agent/json"
+
+
+          def published():
+              """PyPI's releases, or None while otto is not on PyPI yet."""
+              problem = None
+              for attempt in range(3):
+                  try:
+                      with urllib.request.urlopen(URL, timeout=30) as response:
+                          return json.load(response)["releases"]
+                  except urllib.error.HTTPError as error:
+                      # 404 is the one answer that means "not published yet".
+                      # A 5xx is PyPI having a bad day, and reading that as
+                      # "nothing to test" is how this job goes quietly green
+                      # while testing nothing it exists to test.
+                      if error.code == 404:
+                          return None
+                      problem = error
+                  except (urllib.error.URLError, TimeoutError, ValueError, KeyError) as error:
+                      problem = error
+                  if attempt < 2:
+                      time.sleep(2**attempt)
+              print(f"::error::compat could not read {URL}: {problem!r}", file=sys.stderr)
+              raise SystemExit(1)
+
+
+          def number(version):
+              return tuple(int(part) for part in version.split(".")[:3] if part.isdigit())
+
+
+          releases = published()
+          if releases is None:
               versions = ["git"]
+          else:
+              versions = sorted((v for v in releases if number(v) >= (0, 2, 0)), key=number)[-3:] or ["git"]
           print("versions=" + json.dumps(versions))
           PY
   bridge:
