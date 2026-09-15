@@ -14,6 +14,8 @@ interface WalkNode {
     val isFocused: Boolean
     val isCheckable: Boolean
     val isChecked: Boolean
+    /** The resource id -- a web element's HTML id -- or "" when it has none. */
+    val viewId: String get() = ""
     /** [left, top, right, bottom] on screen. */
     fun boundsOnScreen(): IntArray
     fun children(): List<WalkNode>
@@ -22,6 +24,7 @@ interface WalkNode {
 object TreeWalker {
     const val MAX_NODES = 400
     const val MAX_DEPTH = 60
+    const val MAX_ID = 120
 
     fun roleOf(className: String, editable: Boolean): String {
         val simple = className.substringAfterLast('.').lowercase()
@@ -62,6 +65,7 @@ object TreeWalker {
                             clickable = node.isClickable, editable = node.isEditable, scrollable = node.isScrollable,
                             password = node.isPassword, focused = node.isFocused,
                             checked = if (node.isCheckable) node.isChecked else null,
+                            viewId = node.viewId.substringAfter(":id/").take(MAX_ID),
                         )
                         onKept(out.size, node)
                     }

@@ -133,6 +133,26 @@ class PolicyGuardReviewTest {
         assertEquals("pay now", guard.normal("  Pay​  NOW "))
     }
 
+    @Test fun anElementIsJudgedByItsIdAsWellAsItsLabel() {
+        // The same corpus as otto's tests/test_phone_element_ids.py.
+        assertEquals("buy now button", guard.idWords("buy-now-button"))
+        assertEquals("buy now button", guard.idWords("in.amazon.mShop.android.shopping:id/buyNowButton"))
+        assertEquals("buybox add to cart", guard.idWords("buybox.addToCart"))
+        assertEquals(PolicyGuard.Target.PAY, guard.targetVerdict("Submit", viewId = "buy-now-button"))
+        assertEquals(PolicyGuard.Target.PAY, guard.targetVerdict("", viewId = "com.shop:id/buyNow"))
+        assertEquals(PolicyGuard.Target.COMMIT, guard.targetVerdict("Submit", viewId = "add-to-cart-button"))
+        assertEquals(PolicyGuard.Target.NONE, guard.targetVerdict("Add to cart", viewId = "add-to-cart-button"))
+        assertEquals(PolicyGuard.Target.PAY, guard.targetVerdict("Pay now", viewId = "add-to-cart-button"))
+        assertEquals(PolicyGuard.Target.PAY, guard.targetVerdict("", listOf("Total ₹28"), viewId = "continue-button"))
+        assertEquals(PolicyGuard.Target.NONE, guard.targetVerdict("Buyer's guide", viewId = "buyers-guide"))
+        val buyNow = UiNode(6, "Submit", "", "button", 52, 2180, 1387, 2320, true, false, false, false, false, null, viewId = "buy-now-button")
+        try { PolicyGuard(rules).requireTappable(buyNow, commit = true); fail("expected a guard refusal") }
+        catch (e: DeviceException) { assertTrue(e.handover); assertTrue(e.message!!.contains("buy-now-button")) }
+        val page = Snapshot("s6", "in.amazon.mShop.android.shopping", "Amazon", 1440, 3088, false, false,
+            listOf(UiNode(1, "Search Amazon", "", "edit-field", 0, 100, 1440, 200, true, true, false, false, true, null), buyNow))
+        try { PolicyGuard(rules).requireSubmit(page); fail("expected a refusal") } catch (e: DeviceException) { assertTrue(e.handover) }
+    }
+
     @Test fun theElementUnderAPoint() {
         val big = UiNode(1, "Cart", "", "list", 0, 0, 1080, 2400, false, false, true, false, false, null)
         val pay = UiNode(2, "Pay now", "", "button", 60, 2200, 1020, 2300, true, false, false, false, false, null)

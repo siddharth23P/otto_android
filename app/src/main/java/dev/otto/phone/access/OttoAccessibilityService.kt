@@ -1,6 +1,7 @@
 package dev.otto.phone.access
 
 import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.GestureDescription
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -210,34 +211,116 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
         after("pressed $key")
     }
 
-    private fun swipeGesture(direction: String, w: Int, h: Int) = when (direction) {
-        "up" -> Gestures.swipe(w / 2, (h * 0.7).toInt(), w / 2, (h * 0.3).toInt())
-        "down" -> Gestures.swipe(w / 2, (h * 0.3).toInt(), w / 2, (h * 0.7).toInt())
-        "left" -> Gestures.swipe((w * 0.8).toInt(), h / 2, (w * 0.2).toInt(), h / 2)
-        "right" -> Gestures.swipe((w * 0.2).toInt(), h / 2, (w * 0.8).toInt(), h / 2)
-        else -> throw DeviceException("not a direction: $direction", "unsupported")
+    private fun swipeGesture(direction: String, w: Int, h: Int, x: Int = -1, y: Int = -1): GestureDescription {
+        if (x < 0 || y < 0) return when (direction) {
+            "up" -> Gestures.swipe(w / 2, (h * 0.7).toInt(), w / 2, (h * 0.3).toInt())
+            "down" -> Gestures.swipe(w / 2, (h * 0.3).toInt(), w / 2, (h * 0.7).toInt())
+            "left" -> Gestures.swipe((w * 0.8).toInt(), h / 2, (w * 0.2).toInt(), h / 2)
+            "right" -> Gestures.swipe((w * 0.2).toInt(), h / 2, (w * 0.8).toInt(), h / 2)
+            else -> throw DeviceException("not a direction: $direction", "unsupported")
+        }
+        // From the point asked for: half the screen across or 40% of it down, kept off the edges,
+        // where a swipe is the system's back gesture. Too short a path would land as a tap, so refused.
+        fun cx(v: Int) = v.coerceIn(w * 3 / 100, w * 97 / 100)
+        fun cy(v: Int) = v.coerceIn(h * 3 / 100, h * 97 / 100)
+        val (x2, y2) = when (direction) {
+            "up" -> cx(x) to cy(y - h * 2 / 5)
+            "down" -> cx(x) to cy(y + h * 2 / 5)
+            "left" -> cx(x - w / 2) to cy(y)
+            "right" -> cx(x + w / 2) to cy(y)
+            else -> throw DeviceException("not a direction: $direction", "unsupported")
+        }
+        if (maxOf(kotlin.math.abs(x2 - cx(x)), kotlin.math.abs(y2 - cy(y))) < minOf(w, h) / 10) {
+            throw DeviceException("no room to swipe $direction from $x,$y", "failed")
+        }
+        return Gestures.swipe(cx(x), cy(y), x2, y2)
     }
 
-    override fun swipe(direction: String): JsonObject = serial {
-        guard.requireActionable(lastSnapshot ?: snapshotNow())
+    /** A drag across the middle of one element (a list, a web page), for a scroll the element
+     *  itself did not perform. Null when the element is too small to drag inside. */
+    private fun gestureWithin(finger: String, n: UiNode, w: Int, h: Int): GestureDescription? {
+        val left = maxOf(n.left, w * 3 / 100)
+        val right = minOf(n.right, w * 97 / 100)
+        val top = maxOf(n.top, 0)
+        val bottom = minOf(n.bottom, h)
+        if (right - left < 100 || bottom - top < 100) return null
+        val cx = (left + right) / 2
+        val cy = (top + bottom) / 2
+        val dx = (right - left) * 3 / 10
+        val dy = (bottom - top) * 3 / 10
+        return when (finger) {
+            "up" -> Gestures.swipe(cx, cy + dy, cx, cy - dy, 400)
+            "down" -> Gestures.swipe(cx, cy - dy, cx, cy + dy, 400)
+            "left" -> Gestures.swipe(cx + dx, cy, cx - dx, cy, 400)
+            else -> Gestures.swipe(cx - dx, cy, cx + dx, cy, 400)
+        }
+    }
+
+    override fun swipe(direction: String, x: Int, y: Int): JsonObject = serial {
+        val current = lastSnapshot ?: snapshotNow()
+        guard.requireActionable(current)
+        val from = x >= 0 && y >= 0
+        // A swipe that starts on an element acts on it ("Slide to pay"): judged like a tap on it.
+        if (from) guard.nodeAt(current, x, y)?.let { guard.requireTappable(it, commit = false, texts = current.nodes.map { n -> n.label }) }
         val m = resources.displayMetrics
-        if (!Gestures.dispatch(this, swipeGesture(direction, m.widthPixels, m.heightPixels))) throw DeviceException("the swipe was not delivered", "failed")
-        after("swiped $direction")
+        if (!Gestures.dispatch(this, swipeGesture(direction, m.widthPixels, m.heightPixels, x, y))) throw DeviceException("the swipe was not delivered", "failed")
+        after(if (from) "swiped $direction from $x,$y" else "swiped $direction")
+    }
+
+    private fun scrollsSideways(info: AccessibilityNodeInfo): Boolean {
+        val cls = info.className?.toString() ?: ""
+        if ("HorizontalScrollView" in cls || "ViewPager" in cls) return true
+        val grid = info.collectionInfo ?: return false
+        return grid.rowCount in 0..1 && grid.columnCount > 1
+    }
+
+    /** What a scroll changes: the labels and positions of what lies in the region (or on screen). */
+    private fun signature(snapshot: Snapshot, region: UiNode?): Int =
+        snapshot.nodes.filter { n -> region == null || (n.top < region.bottom && n.bottom > region.top && n.left < region.right && n.right > region.left) }
+            .joinToString("\n") { "${it.label}|${it.viewId}@${it.left},${it.top}" }.hashCode()
+
+    /** Whether the screen shows a change within about a second: a WebView reports moved nodes late,
+     *  and a screen read at once looks as if nothing happened. */
+    private fun changed(was: Int, region: UiNode?): Boolean {
+        repeat(8) {
+            Thread.sleep(150)
+            val now = runCatching { snapshotNow() }.getOrNull() ?: return@repeat
+            if (signature(now, region) != was) return true
+        }
+        return false
     }
 
     override fun scroll(direction: String, node: Int): JsonObject = serial {
-        guard.requireActionable(lastSnapshot ?: snapshotNow())
-        val info = if (node >= 0) requireNode(lastSnapshot?.snapshotId ?: "", node).second else null
+        val before = lastSnapshot ?: snapshotNow()
+        guard.requireActionable(before)
+        // Scrolling down means content moves up: the finger swipes up.
+        val finger = when (direction) {
+            "down" -> "up"; "up" -> "down"; "left" -> "right"; "right" -> "left"
+            else -> throw DeviceException("not a direction: $direction", "unsupported")
+        }
+        val sideways = direction == "left" || direction == "right"
+        // The list to move: the one named, else the largest on screen that scrolls this way -- a web
+        // page's WebView, not the carousel inside it.
+        val target: Pair<UiNode, AccessibilityNodeInfo>? = if (node >= 0) requireNode(before.snapshotId, node)
+            else before.nodes.filter { it.scrollable }
+                .mapNotNull { ui -> lastNodes[ui.index]?.let { ui to it } }
+                .filter { (_, info) -> scrollsSideways(info) == sideways }
+                .maxByOrNull { (ui, _) -> (ui.right - ui.left).toLong() * (ui.bottom - ui.top) }
+        val region = target?.first
+        val was = signature(before, region)
         val forward = direction == "down" || direction == "right"
         val action = if (forward) AccessibilityNodeInfo.ACTION_SCROLL_FORWARD else AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
-        val done = info?.performAction(action) ?: false
-        if (!done) {
+        // A view can accept the scroll action and not move (a WebView often does): what counts is the
+        // screen changing, and when it does not, the finger does it instead.
+        var moved = target?.second?.performAction(action) == true && changed(was, region)
+        if (!moved) {
             val m = resources.displayMetrics
-            // Scrolling down means content moves up: the finger swipes up.
-            val gesture = swipeGesture(when (direction) { "down" -> "up"; "up" -> "down"; "left" -> "right"; else -> "left" }, m.widthPixels, m.heightPixels)
+            val gesture = region?.let { gestureWithin(finger, it, m.widthPixels, m.heightPixels) }
+                ?: swipeGesture(finger, m.widthPixels, m.heightPixels)
             if (!Gestures.dispatch(this, gesture)) throw DeviceException("could not scroll", "failed")
+            moved = changed(was, region)
         }
-        after("scrolled $direction")
+        after(if (moved) "scrolled $direction" else "scrolled $direction, but nothing on screen moved -- the end of the list, or a view that does not scroll that way")
     }
 
     // -- looking -------------------------------------------------------------
@@ -359,6 +442,7 @@ private class AndroidWalkNode(val info: AccessibilityNodeInfo) : WalkNode {
     override val isFocused: Boolean get() = info.isFocused
     override val isCheckable: Boolean get() = info.isCheckable
     override val isChecked: Boolean get() = info.isChecked
+    override val viewId: String get() = info.viewIdResourceName ?: ""
     override fun boundsOnScreen(): IntArray {
         val r = android.graphics.Rect(); info.getBoundsInScreen(r)
         return intArrayOf(r.left, r.top, r.right, r.bottom)

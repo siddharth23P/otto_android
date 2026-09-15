@@ -31,7 +31,9 @@ object PyBridge {
         envelope { ops.tapNode(snapshotId, node, long, commit) }
     @JvmStatic fun type_text(text: String, node: Int): String = envelope { ops.typeText(text, node) }
     @JvmStatic fun press(key: String): String = envelope { ops.press(key) }
-    @JvmStatic fun swipe(direction: String): String = envelope { ops.swipe(direction) }
+    @JvmStatic fun swipe(direction: String): String = envelope { ops.swipe(direction, -1, -1) }
+    /** A swipe from a point: otto sends (direction, x, y) when it has one. */
+    @JvmStatic fun swipe(direction: String, x: Int, y: Int): String = envelope { ops.swipe(direction, x, y) }
     @JvmStatic fun scroll(direction: String, node: Int): String = envelope { ops.scroll(direction, node) }
     @JvmStatic fun screenshot(): String = envelope { ops.screenshot() }
     @JvmStatic fun apps(): String = envelope { ops.apps() }
@@ -54,7 +56,7 @@ object PyBridge {
             "tap_node" -> tap_node(s(0), i(1), b(2), b(3))
             "type_text" -> type_text(s(0), i(1))
             "press" -> press(s(0))
-            "swipe" -> swipe(s(0))
+            "swipe" -> swipe(s(0), i(1), i(2))
             "scroll" -> scroll(s(0), i(1))
             "screenshot" -> screenshot()
             "apps" -> apps()
@@ -75,7 +77,8 @@ interface DeviceOps {
     fun tapNode(snapshotId: String, node: Int, long: Boolean, commit: Boolean): JsonObject
     fun typeText(text: String, node: Int): JsonObject
     fun press(key: String): JsonObject
-    fun swipe(direction: String): JsonObject
+    /** From x,y when both are >= 0, else across the middle of the screen. */
+    fun swipe(direction: String, x: Int, y: Int): JsonObject
     fun scroll(direction: String, node: Int): JsonObject
     fun screenshot(): JsonObject
     fun apps(): JsonObject
@@ -92,7 +95,7 @@ interface DeviceOps {
         override fun tapNode(snapshotId: String, node: Int, long: Boolean, commit: Boolean) = off()
         override fun typeText(text: String, node: Int) = off()
         override fun press(key: String) = off()
-        override fun swipe(direction: String) = off()
+        override fun swipe(direction: String, x: Int, y: Int) = off()
         override fun scroll(direction: String, node: Int) = off()
         override fun screenshot() = off()
         override fun apps() = off()
