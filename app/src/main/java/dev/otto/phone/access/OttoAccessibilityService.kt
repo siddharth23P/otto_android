@@ -40,6 +40,9 @@ import kotlinx.serialization.json.put
  */
 class OttoAccessibilityService : AccessibilityService(), DeviceOps {
     private val actions = Executors.newSingleThreadExecutor { r -> Thread(r, "otto-actions") }
+    /** Where takeScreenshot delivers its result. Not [actions]: screenshot() runs there and waits for
+     *  the callback, which on the same thread could only run after the wait gave up. */
+    private val capture = Executors.newSingleThreadExecutor { r -> Thread(r, "otto-capture") }
     private val counter = AtomicInteger()
     private var lastSnapshot: Snapshot? = null
     private var lastNodes: Map<Int, AccessibilityNodeInfo> = emptyMap()
@@ -61,6 +64,7 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
     override fun onDestroy() {
         if (instance === this) { instance = null; PyBridge.ops = DeviceOps.Unavailable }
         actions.shutdownNow()
+        capture.shutdownNow()
         super.onDestroy()
     }
 
@@ -341,7 +345,7 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
         val latch = CountDownLatch(1)
         var bitmap: Bitmap? = null
         var error = 0
-        takeScreenshot(Display.DEFAULT_DISPLAY, actions, object : TakeScreenshotCallback {
+        takeScreenshot(Display.DEFAULT_DISPLAY, capture, object : TakeScreenshotCallback {
             override fun onSuccess(screenshot: ScreenshotResult) {
                 bitmap = screenshot.hardwareBuffer?.let { buf ->
                     Bitmap.wrapHardwareBuffer(buf, screenshot.colorSpace)?.copy(Bitmap.Config.ARGB_8888, false)
