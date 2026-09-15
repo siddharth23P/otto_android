@@ -57,7 +57,7 @@ jobs:
           def installable(releases):
               """The stable releases at or above the floor, oldest first."""
               found = []
-              for raw in releases:
+              for raw, files in releases.items():
                   try:
                       version = Version(raw)
                   except InvalidVersion:
@@ -66,6 +66,13 @@ jobs:
                   # them is what a phone would install, so none of them may
                   # take one of the three slots a real release is owed.
                   if version.is_prerelease or version < FLOOR:
+                      continue
+                  # PyPI keeps the version number of a release whose files it
+                  # no longer serves. With no files left the install fails
+                  # outright; with every file yanked pip still installs it
+                  # from our exact pin, and the job reports on a release its
+                  # author withdrew.
+                  if not files or all(file.get("yanked", False) for file in files):
                       continue
                   found.append((version, raw))
               found.sort(key=lambda pair: pair[0])
