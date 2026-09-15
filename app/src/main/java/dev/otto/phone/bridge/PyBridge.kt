@@ -16,54 +16,58 @@ import kotlinx.serialization.json.put
 object PyBridge {
     @Volatile var ops: DeviceOps = DeviceOps.Unavailable
 
-    private inline fun envelope(block: () -> JsonElement): String = try {
-        Envelope.ok(block()).toString()
+    private inline fun envelope(block: () -> JsonElement): JsonObject = try {
+        Envelope.ok(block())
     } catch (e: DeviceException) {
-        Envelope.error(e.code, e.message ?: "failed", e.handover).toString()
+        Envelope.error(e.code, e.message ?: "failed", e.handover)
     } catch (e: Exception) {
-        Envelope.error("failed", "${e.javaClass.simpleName}: ${e.message}").toString()
+        Envelope.error("failed", "${e.javaClass.simpleName}: ${e.message}")
     }
 
-    @JvmStatic fun tree(): String = envelope { ops.tree() }
-    @JvmStatic fun foreground(): String = envelope { ops.foreground() }
-    @JvmStatic fun tap(x: Int, y: Int): String = envelope { ops.tap(x, y) }
+    @JvmStatic fun tree(): String = envelope { ops.tree() }.toString()
+    @JvmStatic fun foreground(): String = envelope { ops.foreground() }.toString()
+    @JvmStatic fun tap(x: Int, y: Int): String = envelope { ops.tap(x, y) }.toString()
     @JvmStatic fun tap_node(snapshotId: String, node: Int, long: Boolean, commit: Boolean): String =
-        envelope { ops.tapNode(snapshotId, node, long, commit) }
-    @JvmStatic fun type_text(text: String, node: Int): String = envelope { ops.typeText(text, node) }
-    @JvmStatic fun press(key: String): String = envelope { ops.press(key) }
-    @JvmStatic fun swipe(direction: String): String = envelope { ops.swipe(direction, -1, -1) }
+        envelope { ops.tapNode(snapshotId, node, long, commit) }.toString()
+    @JvmStatic fun type_text(text: String, node: Int): String = envelope { ops.typeText(text, node) }.toString()
+    @JvmStatic fun press(key: String): String = envelope { ops.press(key) }.toString()
+    @JvmStatic fun swipe(direction: String): String = envelope { ops.swipe(direction, -1, -1) }.toString()
     /** A swipe from a point: otto sends (direction, x, y) when it has one. */
-    @JvmStatic fun swipe(direction: String, x: Int, y: Int): String = envelope { ops.swipe(direction, x, y) }
-    @JvmStatic fun scroll(direction: String, node: Int): String = envelope { ops.scroll(direction, node) }
-    @JvmStatic fun screenshot(): String = envelope { ops.screenshot() }
-    @JvmStatic fun apps(): String = envelope { ops.apps() }
-    @JvmStatic fun launch(packageName: String): String = envelope { ops.launch(packageName) }
-    @JvmStatic fun open_settings(page: String, packageName: String): String = envelope { ops.openSettings(page, packageName) }
-    @JvmStatic fun install(packageName: String, query: String): String = envelope { ops.install(packageName, query) }
+    @JvmStatic fun swipe(direction: String, x: Int, y: Int): String = envelope { ops.swipe(direction, x, y) }.toString()
+    @JvmStatic fun scroll(direction: String, node: Int): String = envelope { ops.scroll(direction, node) }.toString()
+    @JvmStatic fun screenshot(): String = envelope { ops.screenshot() }.toString()
+    @JvmStatic fun apps(): String = envelope { ops.apps() }.toString()
+    @JvmStatic fun launch(packageName: String): String = envelope { ops.launch(packageName) }.toString()
+    @JvmStatic fun open_settings(page: String, packageName: String): String = envelope { ops.openSettings(page, packageName) }.toString()
+    @JvmStatic fun install(packageName: String, query: String): String = envelope { ops.install(packageName, query) }.toString()
 
     /** An agent/embed.py event, as JSON, from the embedded runtime. */
     @JvmStatic fun onEvent(json: String) { EventBus.emit(json) }
 
     /** Dispatch by name, for the serve transport's device_call frames. */
-    fun call(method: String, args: List<JsonElement>): String {
+    fun call(method: String, args: List<JsonElement>): String = callJson(method, args).toString()
+
+    /** [call] as the envelope object: the serve transport puts it in a frame as it is, rather than
+     *  printing a snapshot of a few hundred nodes and parsing it straight back. */
+    fun callJson(method: String, args: List<JsonElement>): JsonObject {
         fun s(i: Int) = args.getOrNull(i)?.toString()?.trim('"') ?: ""
         fun i(i: Int) = s(i).toIntOrNull() ?: -1
         fun b(i: Int) = s(i) == "true"
         return when (method) {
-            "tree" -> tree()
-            "foreground" -> foreground()
-            "tap" -> tap(i(0), i(1))
-            "tap_node" -> tap_node(s(0), i(1), b(2), b(3))
-            "type_text" -> type_text(s(0), i(1))
-            "press" -> press(s(0))
-            "swipe" -> swipe(s(0), i(1), i(2))
-            "scroll" -> scroll(s(0), i(1))
-            "screenshot" -> screenshot()
-            "apps" -> apps()
-            "launch" -> launch(s(0))
-            "open_settings" -> open_settings(s(0), s(1))
-            "install" -> install(s(0), s(1))
-            else -> Envelope.error("unsupported", "no such device method: $method").toString()
+            "tree" -> envelope { ops.tree() }
+            "foreground" -> envelope { ops.foreground() }
+            "tap" -> envelope { ops.tap(i(0), i(1)) }
+            "tap_node" -> envelope { ops.tapNode(s(0), i(1), b(2), b(3)) }
+            "type_text" -> envelope { ops.typeText(s(0), i(1)) }
+            "press" -> envelope { ops.press(s(0)) }
+            "swipe" -> envelope { ops.swipe(s(0), i(1), i(2)) }
+            "scroll" -> envelope { ops.scroll(s(0), i(1)) }
+            "screenshot" -> envelope { ops.screenshot() }
+            "apps" -> envelope { ops.apps() }
+            "launch" -> envelope { ops.launch(s(0)) }
+            "open_settings" -> envelope { ops.openSettings(s(0), s(1)) }
+            "install" -> envelope { ops.install(s(0), s(1)) }
+            else -> Envelope.error("unsupported", "no such device method: $method")
         }
     }
 }

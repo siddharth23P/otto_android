@@ -89,7 +89,9 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
         val walked = TreeWalker.walk(AndroidWalkNode(root)) { index, node -> nodes[index] = (node as AndroidWalkNode).info }
         val metrics = resources.displayMetrics
         val pkg = root.packageName?.toString() ?: ""
-        val secure = windows.any { it.type == AccessibilityWindowInfo.TYPE_APPLICATION && it.root?.packageName == root.packageName && isSecureWindow(it) }
+        // FLAG_SECURE is not visible to accessibility: the screenshot path reports a secure window, so the
+        // walk no longer fetches every app window's root to learn nothing.
+        val secure = false
         val keyboard = windows.any { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }
         val snapshot = Snapshot(
             snapshotId = "s${counter.incrementAndGet()}", packageName = pkg, label = catalog.label(pkg),
@@ -99,8 +101,6 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
         lastNodes = nodes
         return snapshot
     }
-
-    private fun isSecureWindow(window: AccessibilityWindowInfo): Boolean = false // reported by the screenshot path instead
 
     override fun tree(): JsonObject = serial {
         val snapshot = snapshotNow()
@@ -422,6 +422,7 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
             }
             if (snapshot.nodes.any { it.clickable && (it.label.equals("Open", ignoreCase = true) || it.label.equals("Update", ignoreCase = true)) }) { state = "already installed"; break }
         }
+        catalog.forgetLabels()
         buildJsonObject {
             put("state", state)
             runCatching { snapshotNow() }.getOrNull()?.let { put("after", it.toJson()) }
