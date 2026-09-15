@@ -114,6 +114,60 @@ class PolicyGuardTest {
         try { g.requireActionable(null); fail("expected a refusal") } catch (e: DeviceException) { assertEquals("guard", e.code) }
     }
 
+    private fun row(i: Int, text: String, top: Int, clickable: Boolean = false, viewId: String = "") =
+        UiNode(i, text, "", if (clickable) "button" else "text", 0, top, 1080, top + 100, clickable, false, false, false, false, null, viewId)
+
+    private val address = Snapshot("s1", "com.example.shop", "Shop", 1080, 2400, false, false,
+        listOf(row(1, "Delivery address", 100), row(2, "Continue", 2200, clickable = true)), takenAt = 1000)
+
+    @Test fun aTotalThatAppearedAfterTheReadMakesTheTapAPayment() {
+        val g = PolicyGuard(rules)
+        g.requireTappable(address.node(2)!!, commit = false, texts = address.nodes.map { it.label })  // the old read alone allows it
+        val fresh = address.copy(snapshotId = "s2", takenAt = 1400,
+            nodes = listOf(row(1, "Delivery address", 100), row(2, "Order total ₹499", 1900), row(3, "Continue", 2200, clickable = true)))
+        try { g.requireStillTappable(address, fresh, 2, commit = false); fail("expected a guard refusal") }
+        catch (e: DeviceException) { assertEquals("guard", e.code); assertTrue(e.handover); assertTrue(g.handedOver) }
+    }
+
+    @Test fun anElementThatChangedSinceTheReadIsStale() {
+        val g = PolicyGuard(rules)
+        val relabelled = address.copy(nodes = listOf(row(1, "Delivery address", 100), row(2, "Remove address", 2200, clickable = true)))
+        val moved = address.copy(nodes = listOf(row(1, "Delivery address", 100), row(2, "Continue", 900, clickable = true)))
+        for (fresh in listOf(relabelled, moved)) {
+            try { g.requireStillTappable(address, fresh, 2, commit = false); fail("expected stale") }
+            catch (e: DeviceException) { assertEquals("stale", e.code); assertTrue(!e.handover) }
+        }
+        val shifted = address.copy(nodes = listOf(row(1, "Deliver to Home", 50), row(2, "Delivery address", 100), row(3, "Continue", 2210, clickable = true)))
+        assertEquals(3, g.requireStillTappable(address, shifted, 2, commit = false).index)
+        assertTrue(!g.handedOver)
+    }
+
+    @Test fun aPaymentAppInFrontOnTheFreshWalkHandsOver() {
+        val g = PolicyGuard(rules)
+        try { g.requireStillTappable(address, address.copy(packageName = "com.phonepe.app", label = "PhonePe"), 2, commit = false); fail("expected a guard refusal") }
+        catch (e: DeviceException) { assertEquals("guard", e.code); assertTrue(e.handover) }
+    }
+
+    @Test fun aTapByPointIsJudgedOnWhatIsThereNow() {
+        val g = PolicyGuard(rules)
+        val dialog = address.copy(nodes = address.nodes + row(3, "Pay ₹499", 2200, clickable = true).copy(left = 100, right = 980))
+        try { g.requireStillAtPoint(address, dialog, 540, 2250); fail("expected stale") } catch (e: DeviceException) { assertEquals("stale", e.code) }
+        assertEquals(2, g.requireStillAtPoint(address, address.copy(takenAt = 2000), 540, 2250)?.index)
+        val game = Snapshot("s9", "com.example.game", "Blocks", 1080, 2400, false, false, emptyList())
+        assertEquals(null, g.requireStillAtPoint(game, game, 540, 1200))
+        try { g.requireStillAtPoint(game, game.copy(nodes = listOf(row(1, "Pay", 0).copy(right = 10, bottom = 10, clickable = true))), 540, 1200); fail("expected a refusal") }
+        catch (e: DeviceException) { assertEquals("guard", e.code) }
+    }
+
+    @Test fun aJudgementIsMadeAgainWhenTheScreenMayHaveMoved() {
+        assertTrue(!guard.needsRecheck(null, 5000))
+        assertTrue(!guard.needsRecheck(address, 900))
+        assertTrue(!guard.needsRecheck(address, 1000))
+        assertTrue(guard.needsRecheck(address, 1001))
+        assertTrue(guard.needsRecheck(address.copy(settled = false), 900))
+        assertTrue(guard.needsRecheck(address.copy(settled = false), 1001))
+    }
+
     @Test fun passwordFieldsAreNeverTyped() {
         try { guard.requireTypeable(node(1, "", password = true)); fail("expected a refusal") } catch (e: DeviceException) { assertTrue(e.handover) }
         guard.requireTypeable(node(1, "Search", editable = true))
