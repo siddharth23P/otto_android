@@ -11,7 +11,7 @@ class TreeWalkerTest {
         override val text: String = "", override val contentDescription: String = "", override val className: String = "android.widget.TextView",
         override val isVisibleToUser: Boolean = true, override val isClickable: Boolean = false, override val isEditable: Boolean = false,
         override val isScrollable: Boolean = false, override val isPassword: Boolean = false, override val isFocused: Boolean = false,
-        override val isCheckable: Boolean = false, override val isChecked: Boolean = false,
+        override val isCheckable: Boolean = false, override val isChecked: Boolean = false, override val viewId: String = "",
         private val bounds: IntArray = intArrayOf(0, 0, 100, 40), private val kids: List<WalkNode> = emptyList(),
     ) : WalkNode {
         override fun boundsOnScreen() = bounds
@@ -37,6 +37,16 @@ class TreeWalkerTest {
         val nodes = TreeWalker.walk(Fake(className = "android.widget.EditText", text = "1234", isEditable = true, isPassword = true))
         assertTrue(nodes[0].password)
         assertTrue(!nodes[0].toJson().toString().contains("1234"))
+    }
+
+    @Test fun anElementCarriesItsIdWithoutThePackagePrefix() {
+        val root = Fake(className = "android.webkit.WebView", isScrollable = true, bounds = intArrayOf(0, 350, 1440, 2698), kids = listOf(
+            Fake(text = "Submit", className = "android.widget.Button", isClickable = true, viewId = "add-to-cart-button"),
+            Fake(contentDescription = "Cart", className = "android.widget.FrameLayout", isClickable = true, viewId = "in.amazon.mShop.android.shopping:id/cart_tab"),
+        ))
+        val nodes = TreeWalker.walk(root)
+        assertEquals(listOf("", "add-to-cart-button", "cart_tab"), nodes.map { it.viewId })
+        assertTrue(nodes[1].toJson().toString().contains("\"v\":\"add-to-cart-button\""))
     }
 
     @Test fun theWalkIsBounded() {

@@ -21,6 +21,9 @@ data class UiNode(
     val password: Boolean,
     val focused: Boolean,
     val checked: Boolean?,
+    /** The resource id, the app's package prefix dropped. A web page's form buttons can all read
+     *  "Submit" and say what they do only here (Amazon's add-to-cart-button, buy-now-button). */
+    val viewId: String = "",
 ) {
     val label: String get() = text.ifBlank { desc }.trim()
     val centreX: Int get() = (left + right) / 2
@@ -31,6 +34,7 @@ data class UiNode(
         put("b", buildJsonArray { add(JsonPrimitive(left)); add(JsonPrimitive(top)); add(JsonPrimitive(right)); add(JsonPrimitive(bottom)) })
         put("c", clickable); put("e", editable); put("s", scrollable); put("p", password); put("f", focused)
         put("k", checked?.let { JsonPrimitive(it) } ?: JsonNull)
+        put("v", viewId)
     }
 }
 

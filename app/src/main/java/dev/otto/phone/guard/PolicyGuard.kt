@@ -16,7 +16,8 @@ import dev.otto.phone.access.UiNode
  *  4. a pay word on the target ("Pay now", and the bare "Pay", "Buy"): never
  *     tapped; a forward word ("Continue", "Next") next to a checkout signal
  *     (a total, "payment"): the same; a commit word ("Send", "Checkout"):
- *     only through phone_commit
+ *     only through phone_commit. The element's resource id is judged as words too, and the stricter
+ *     verdict wins: a web "Submit" whose id is buy-now-button is a pay word
  *  4b. a tap by coordinates that lands on no element: refused on a screen
  *     that has clickable elements, because what is drawn there is unknown
  *  4c. enter is the keyboard's submit, judged like a tap; back/home/recents
@@ -41,6 +42,11 @@ class PolicyGuard(val rules: GuardRules) {
         val latin = buildString(lowered.length) { for (ch in lowered) append(CONFUSABLES[ch] ?: ch) }
         return latin.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }.joinToString(" ")
     }
+
+    /** An element's resource id as words: the package prefix dropped, camelCase and -_./: split, then
+     *  [normal] -- the same as otto's guard.id_words(), so "buyNowButton" is "buy now button". */
+    fun idWords(viewId: String): String =
+        normal(viewId.substringAfter(":id/").replace(CAMEL, "$1 $2").replace(ID_SEPARATORS, " "))
 
     fun packageVerdict(packageName: String, label: String = ""): String {
         val pkg = normal(packageName)
@@ -78,7 +84,17 @@ class PolicyGuard(val rules: GuardRules) {
         texts.firstOrNull { t -> normal(t).let { n -> n.isNotEmpty() && rules.checkoutSignals.any { it.matcher(n).find() } } }?.take(60) ?: ""
 
     /** `texts` are the other strings on the screen: a forward word is a pay word only next to a checkout signal. */
-    fun targetVerdict(label: String, texts: Iterable<String> = emptyList()): Target {
+    fun targetVerdict(label: String, texts: Iterable<String> = emptyList(), viewId: String = ""): Target {
+        val screen = texts.toList()
+        val verdicts = listOf(wordsVerdict(label, screen), wordsVerdict(idWords(viewId), screen))
+        return when {
+            Target.PAY in verdicts -> Target.PAY
+            Target.COMMIT in verdicts -> Target.COMMIT
+            else -> Target.NONE
+        }
+    }
+
+    private fun wordsVerdict(label: String, texts: List<String>): Target {
         val text = normal(label)
         if (text.isEmpty()) return Target.NONE
         // A phrase matches as a substring, and with every space removed; a single word matches whole
@@ -101,9 +117,10 @@ class PolicyGuard(val rules: GuardRules) {
     }
 
     fun requireTappable(node: UiNode, commit: Boolean, texts: Iterable<String> = emptyList()) {
-        when (targetVerdict(node.label, texts)) {
-            Target.PAY -> { handedOver = true; throw guard(note("'${node.label}' is a payment step -- the person does that"), handover = true) }
-            Target.COMMIT -> if (!commit) throw guard(note("'${node.label}' cannot be taken back; only phone_commit may tap it"), handover = false)
+        val shown = if (node.viewId.isEmpty()) node.label else "${node.label} #${node.viewId.take(60)}".trim()
+        when (targetVerdict(node.label, texts, node.viewId)) {
+            Target.PAY -> { handedOver = true; throw guard(note("'$shown' is a payment step -- the person does that"), handover = true) }
+            Target.COMMIT -> if (!commit) throw guard(note("'$shown' cannot be taken back; only phone_commit may tap it"), handover = false)
             Target.NONE -> Unit
         }
     }
@@ -131,6 +148,9 @@ class PolicyGuard(val rules: GuardRules) {
         texts.firstOrNull { targetVerdict(it) == Target.PAY }?.let {
             handedOver = true; throw guard(note("this screen has a payment step ('${it.take(60)}'); Enter would submit it -- the person does that"), handover = true)
         }
+        snapshot.nodes.firstOrNull { it.viewId.isNotEmpty() && targetVerdict("", viewId = it.viewId) == Target.PAY }?.let {
+            handedOver = true; throw guard(note("this screen has a payment step (#${it.viewId.take(60)}); Enter would submit it -- the person does that"), handover = true)
+        }
     }
 
     fun requireTypeable(node: UiNode?) {
@@ -146,6 +166,8 @@ class PolicyGuard(val rules: GuardRules) {
         dev.otto.phone.bridge.DeviceException(message, "guard", handover)
 
     companion object {
+        val CAMEL = Regex("([a-z0-9])([A-Z])")
+        val ID_SEPARATORS = Regex("[-_./:#]+")
         val INVISIBLE = Regex("[\\u200B-\\u200F\\u2060-\\u2064\\u00AD\\uFEFF\\u202A-\\u202E\\u2066-\\u2069]")
 
         /** Cyrillic and Greek letters that draw the same as a Latin one, folded after lower-casing --
