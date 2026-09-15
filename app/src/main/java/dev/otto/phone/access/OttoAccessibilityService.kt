@@ -197,7 +197,9 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
             width = metrics.widthPixels, height = metrics.heightPixels, keyboard = keyboard, secure = secure, nodes = walked,
             takenAt = takenAt, settled = settled,
             page = PageInfo(page.seq, page.activity, offscreen),
-        )
+        ).let { walk -> walk.copy(page = walk.page?.copy(kind = guard.page(walk).kind.wire)) }
+        // Every walk is judged once, in order: the guard holds what this window was judged, so a payment
+        // page scrolled past its total is still one, and otto takes the phone's class as a floor.
         if (keep) { lastSnapshot = snapshot; lastNodes = nodes }
         return snapshot
     }
@@ -252,11 +254,12 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
     override fun tap(x: Int, y: Int): JsonObject = serial {
         val current = lastSnapshot ?: snapshotNow()
         guard.requireActionable(current)
+        guard.requireInteractive(current)
         // A tap by coordinates is a tap on whatever is drawn there; a point with nothing under it is
         // refused on a screen that has elements, because what is drawn there is unknown.
         val under = guard.nodeAt(current, x, y)
         if (under == null) guard.requireBlindTap(current, lookedId)
-        else { guard.requireTappable(under, commit = false, texts = current.nodes.map { it.label }); guard.requireTypeable(under.takeIf { it.password }) }
+        else { guard.requireTappable(under, commit = false, kind = guard.kindOf(current)); guard.requireTypeable(under.takeIf { it.password }) }
         recheck(current)?.let { fresh -> guard.requireStillAtPoint(current, fresh, x, y) }
         val since = now()
         if (!Gestures.dispatch(this, Gestures.tap(x, y))) throw DeviceException("the tap was not delivered", "failed")
@@ -267,7 +270,8 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
         val current = lastSnapshot
         guard.requireActionable(current)
         val (ui, info) = requireNode(snapshotId, node)
-        guard.requireTappable(ui, commit, texts = current?.nodes?.map { it.label } ?: emptyList())
+        current?.let { guard.requireInteractive(it) }
+        guard.requireTappable(ui, commit, current?.let { guard.kindOf(it) } ?: PolicyGuard.PageKind.NONE)
         // Judged again on what is in front now when the screen moved since it was read. The click still
         // goes to the node object kept from that read, so it must still show what was judged.
         val target = current?.let { recheck(it) }?.let { fresh ->
@@ -284,6 +288,7 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
 
     override fun typeText(text: String, node: Int): JsonObject = serial {
         guard.requireActionable(lastSnapshot)
+        lastSnapshot?.let { guard.requireInteractive(it) }
         val since = now()
         val target: AccessibilityNodeInfo? = if (node >= 0) {
             val (ui, info) = requireNode(lastSnapshot?.snapshotId ?: "", node)
@@ -417,7 +422,8 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
         val from = x >= 0 && y >= 0
         // A swipe that starts on an element acts on it ("Slide to pay"): judged like a tap on it.
         if (from) {
-            guard.nodeAt(current, x, y)?.let { guard.requireTappable(it, commit = false, texts = current.nodes.map { n -> n.label }) }
+            guard.requireInteractive(current)
+            guard.nodeAt(current, x, y)?.let { guard.requireTappable(it, commit = false, kind = guard.kindOf(current)) }
             recheck(current)?.let { fresh -> guard.requireStillSwipeable(current, fresh, x, y) }
         }
         val m = resources.displayMetrics
@@ -488,6 +494,8 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
         if (guard.packageVerdict(current.packageName, current.label).isNotEmpty()) {
             throw DeviceException(guard.packageVerdict(current.packageName, current.label), "guard", handover = true)
         }
+        // A picture goes to a vision model: not of a payment page, a protected one, or one naming a secret.
+        guard.requireCapturable(current)
         lastCapture?.let { (at, id, json) ->
             // Only for the capture it was taken on: the screen may have moved on
             // inside the second, and an old picture of a new screen is a lie.
