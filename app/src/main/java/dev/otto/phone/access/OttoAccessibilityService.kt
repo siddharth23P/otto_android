@@ -10,6 +10,8 @@ import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
 import android.view.Display
+import android.view.KeyEvent
+import android.view.inputmethod.EditorInfo
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
@@ -277,14 +279,37 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
             "back" -> performGlobalAction(GLOBAL_ACTION_BACK)
             "home" -> performGlobalAction(GLOBAL_ACTION_HOME)
             "recents" -> performGlobalAction(GLOBAL_ACTION_RECENTS)
-            "enter" -> {
-                val focused = findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
-                focused?.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id) ?: false
-            }
+            "enter" -> pressEnter()
             else -> throw DeviceException("not a key this knows: $key", "unsupported")
         }
         if (!ok) throw DeviceException("$key was not accepted", "failed")
         after("pressed $key", since, now())
+    }
+
+    /** The keyboard's Go / Search / Send for the field being typed in. ACTION_IME_ENTER on the
+     *  input-focused node is the documented way, but a field can lose input focus to a suggestion
+     *  list while keeping it on screen, so the field the last read saw focused is tried next, and
+     *  last the service's own input connection (API 33+), which fires the field's declared IME
+     *  action exactly as the keyboard's action key does -- or a plain Enter when it declares none. */
+    private fun pressEnter(): Boolean {
+        val enter = AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id
+        findFocus(AccessibilityNodeInfo.FOCUS_INPUT)?.let { if (it.performAction(enter)) return true }
+        lastSnapshot?.nodes?.firstOrNull { it.editable && it.focused }?.let { ui ->
+            lastNodes[ui.index]?.let { if (it.performAction(enter)) return true }
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val ime = inputMethod ?: return false
+            val connection = ime.currentInputConnection ?: return false
+            val action = (ime.currentInputEditorInfo?.imeOptions ?: 0) and EditorInfo.IME_MASK_ACTION
+            if (action != EditorInfo.IME_ACTION_NONE && action != EditorInfo.IME_ACTION_UNSPECIFIED) {
+                connection.performEditorAction(action)
+            } else {
+                connection.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER))
+                connection.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER))
+            }
+            return true
+        }
+        return false
     }
 
     private fun swipeGesture(direction: String, w: Int, h: Int, x: Int = -1, y: Int = -1): GestureDescription {
