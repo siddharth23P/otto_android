@@ -32,7 +32,7 @@ def test_bootstrap_and_setup_status(bridge, tmp_path, monkeypatch):
     assert info["keys"]["OPENAI_API_KEY"] == "********1234"
     assert info["compat"]["api"] == 1
     assert not list((tmp_path / "otto").glob("*.env"))  # keystore mode: nothing written
-    assert json.loads(entry.set_key("OPENAI_API_KEY", "sk-rotated5678"))["shown"] == "********5678"
+    assert json.loads(entry.set_key("OPENAI_API_KEY", "sk-rotated5678"))["masked"] == "********5678"
     assert not json.loads(entry.set_key("bad name", "x"))["ok"]
 
 
