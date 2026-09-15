@@ -14,7 +14,9 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -127,7 +129,7 @@ fun ChatScreen(m: Models) {
                 )
                 chat.turn?.let { turn ->
                     Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 5.dp).semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite },
+                        Modifier.fillMaxWidth().testTag("status_line").padding(horizontal = 14.dp, vertical = 5.dp).semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite },
                         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         PulseDot(c.accent)
@@ -150,6 +152,11 @@ fun ChatScreen(m: Models) {
                     },
                     onStop = { m.chat.stop() },
                     chips = listOfNotNull(ChatText.whereChip(chat.turn?.where ?: lastWhere(chat.blocks)), ChatText.modelChip(chat.turn)),
+                    disabledReason = when {
+                        app.link == Link.NeedsKey -> "otto needs a key"
+                        app.link != Link.Ready -> "otto isn't connected"
+                        else -> "a turn is running"
+                    },
                 )
             }
             OttoToastHost(toasts, Modifier.align(Alignment.BottomCenter).padding(bottom = 96.dp))
@@ -176,8 +183,8 @@ private fun ChatTopBar(spend: String?, onMenu: () -> Unit, onSettings: () -> Uni
                     expanded = menu, onDismissRequest = { menu = false },
                     containerColor = c.card, tonalElevation = 0.dp, shadowElevation = 0.dp, shape = OttoShapes.r2, border = BorderStroke(1.dp, c.line),
                 ) {
-                    MenuItem("Settings") { menu = false; onSettings() }
-                    MenuItem("Copy last answer", OttoIcons.Copy) { menu = false; onCopyLast() }
+                    MenuItem("Settings", modifier = Modifier.testTag("menu_settings")) { menu = false; onSettings() }
+                    MenuItem("Copy last answer", OttoIcons.Copy, Modifier.testTag("menu_copy_last")) { menu = false; onCopyLast() }
                 }
             }
         }
@@ -231,7 +238,7 @@ private fun Transcript(m: Models, modifier: Modifier, now: Long, actions: Messag
         return
     }
     LazyColumn(
-        modifier.fillMaxWidth(), state = list,
+        modifier.fillMaxWidth().testTag("chat_list"), state = list,
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(21.dp),
     ) {
@@ -268,7 +275,8 @@ private fun EmptyChat(modifier: Modifier, onSuggestion: (String) -> Unit) {
             Text(
                 s, style = OttoTheme.type.ui.copy(fontSize = 14.5.sp),
                 modifier = Modifier.fillMaxWidth().background(c.card, OttoShapes.r2).border(1.dp, c.line, OttoShapes.r2)
-                    .clickable(onClickLabel = "put this in the message") { onSuggestion(s) }.padding(horizontal = 16.dp, vertical = 13.dp),
+                    .heightIn(min = 48.dp).clickable(role = Role.Button, onClickLabel = "put this in the message") { onSuggestion(s) }
+                    .padding(horizontal = 16.dp, vertical = 13.dp),
             )
         }
     }

@@ -51,6 +51,11 @@ class ChatTextTest {
         assertEquals("failed", ChatText.traceLabel(TurnUi(running = false, failed = true), ""))
     }
 
+    @Test fun talkBackHearsWordsNotGlyphs() {
+        assertEquals("answered by mercury-2, plan, thought for 0:12, 5 steps", ChatText.spoken("answered by mercury-2 · ☰ plan · ◆ thought for 0:12 · 5 steps"))
+        assertEquals("phone_tap to ok", ChatText.spoken(dev.otto.phone.state.Board.decorate("solve: phone_tap -> ok").text))
+    }
+
     @Test fun chipsQuotesAndToolRows() {
         assertEquals("on your phone", ChatText.whereChip(Where.PHONE))
         assertEquals("answering here", ChatText.whereChip(Where.HERE))

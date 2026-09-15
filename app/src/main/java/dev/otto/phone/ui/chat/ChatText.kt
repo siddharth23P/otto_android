@@ -62,6 +62,12 @@ object ChatText {
         return listOfNotNull(turn.model.ifBlank { null }?.let(ChatText::model), Format.formatCost(turn.cost?.cost, UNKNOWN_COST))
     }
 
+    private val GLYPHS = Regex("[◆☰≣⌕●○◇▰▱▁▂▃▄▅▆▇█›]")
+
+    /** Text for TalkBack: the TUI's glyphs dropped, arrows and dots said as words. */
+    fun spoken(text: String): String =
+        text.replace(GLYPHS, "").replace("→", " to ").replace(" · ", ", ").replace(Regex("\\s{2,}"), " ").trim()
+
     /** The trace fold's label: "working…" while it runs, then who answered, or what went wrong. */
     fun traceLabel(turn: TurnUi, systemText: String? = null): String = when {
         turn.running -> WORKING
