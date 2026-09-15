@@ -1,8 +1,12 @@
-# By hand and on otto bumps: install the debug APK on an emulator, enable the
-# accessibility service, and run the instrumented smoke test.
+# Nightly, by hand, and on otto bumps: install the debug APK on an emulator,
+# enable the accessibility service, and run the instrumented smoke test. The
+# nightly run is the only thing that answers "does the app still start on a
+# device" for a change to the app itself; the label answers it for otto.
 name: emulator
 
 on:
+  schedule:
+    - cron: "29 5 * * *"
   workflow_dispatch:
   pull_request:
     types: [labeled]
@@ -12,7 +16,10 @@ permissions:
 
 jobs:
   smoke:
-    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'otto-bump'
+    # The gate is only here to pick the one label worth an emulator out of
+    # every label a pull request gets. Naming the events that may run instead
+    # is how this job came to skip everything that was not a dispatch.
+    if: github.event_name != 'pull_request' || github.event.label.name == 'otto-bump'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
