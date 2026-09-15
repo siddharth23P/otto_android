@@ -121,7 +121,9 @@ class Correlator {
                 "started" -> {
                     if (sid != null) running.add(sid)
                     val turns = pending.filter { it.op == Op.TURN }
-                    accepted = turns.firstOrNull { it.sessionId != null && it.sessionId == sid } ?: turns.firstOrNull { it.sessionId == null }
+                    // Protocol 2 echoes the turn request's id on the event frame; before that, match by session.
+                    val echoed = frame.string("id")?.let { id -> turns.firstOrNull { it.id == id } }
+                    accepted = echoed ?: turns.firstOrNull { it.sessionId != null && it.sessionId == sid } ?: turns.firstOrNull { it.sessionId == null }
                     accepted?.let { pending.remove(it) }
                 }
                 "final", "error" -> if (sid != null) running.remove(sid)

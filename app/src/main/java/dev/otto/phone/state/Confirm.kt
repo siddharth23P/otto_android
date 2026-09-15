@@ -19,3 +19,11 @@ fun Reply<*>.problem(fallback: String = "failed"): String? = when (this) {
     is Reply.Err -> message.ifBlank { fallback }
     Reply.Unsupported -> NEEDS_NEWER_OTTO
 }
+
+/** otto serve refuses key and routing changes from anywhere but its own computer. */
+const val FORBIDDEN_SETUP = "Keys and routing can only be changed from the computer running otto serve (or over USB via adb reverse)"
+
+/** `problem` for a request that writes otto's configuration (set_key, pin, clear): a `forbidden`
+ *  reply is explained rather than repeated. */
+fun Reply<*>.writeProblem(fallback: String = "failed"): String? =
+    if (this is Reply.Err && code == "forbidden") FORBIDDEN_SETUP else problem(fallback)
