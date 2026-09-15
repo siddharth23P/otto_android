@@ -14,6 +14,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.otto.phone.state.Route
+import dev.otto.phone.ui.chat.ChatScreen
 import dev.otto.phone.ui.theme.OttoTheme
 
 /** The ViewModels every screen draws from, passed down as one handle. */
