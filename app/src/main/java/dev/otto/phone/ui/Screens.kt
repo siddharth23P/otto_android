@@ -1,15 +1,20 @@
 package dev.otto.phone.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -23,24 +28,34 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
 
+/** Every screen is laid out inside the safe area, keyboard included. The window draws edge to edge
+ *  (Android 15+ enforces it for targetSdk 35), so adjustResize no longer shrinks it for the keyboard:
+ *  the insets are the only thing that keeps a text field above the keyboard and off the system bars. */
 @Composable
 fun OttoUi(vm: ChatViewModel) {
     val state by vm.state.collectAsStateWithLifecycle()
-    when (state.screen) {
-        Screen.DISCLOSURE -> DisclosureScreen(onAccept = vm::acceptDisclosure)
-        Screen.SETUP -> SetupScreen(state, vm)
-        Screen.CHAT -> ChatScreen(state, vm)
-        Screen.SESSIONS -> SessionsScreen(state, vm)
-        Screen.SETTINGS -> SettingsScreen(state, vm)
+    Box(Modifier.fillMaxSize().safeDrawingPadding()) {
+        when (state.screen) {
+            Screen.DISCLOSURE -> DisclosureScreen(onAccept = vm::acceptDisclosure)
+            Screen.SETUP -> SetupScreen(state, vm)
+            Screen.CHAT -> ChatScreen(state, vm)
+            Screen.SESSIONS -> SessionsScreen(state, vm)
+            Screen.SETTINGS -> SettingsScreen(state, vm)
+        }
     }
 }
 
@@ -106,7 +121,20 @@ private fun KeyRow(name: String, shown: String, onSave: (String) -> Unit) {
 @Composable
 fun ChatScreen(state: UiState, vm: ChatViewModel) {
     var input by remember { mutableStateOf("") }
-    Scaffold(topBar = {
+    val list = rememberLazyListState()
+    val count = state.messages.size + if (state.board.isNotEmpty()) 1 else 0
+    // The latest message stays in sight: when one arrives, and when the keyboard opens and the list shrinks.
+    LaunchedEffect(count) { if (count > 0) list.scrollToItem(count - 1) }
+    val ime = WindowInsets.ime
+    val density = LocalDensity.current
+    LaunchedEffect(Unit) {
+        snapshotFlow { ime.getBottom(density) > 0 }.distinctUntilChanged().filter { it }.collect {
+            val last = list.layoutInfo.totalItemsCount - 1
+            if (last >= 0) list.scrollToItem(last)
+        }
+    }
+    // No content insets of its own: OttoUi already padded for the bars and the keyboard.
+    Scaffold(contentWindowInsets = WindowInsets(0, 0, 0, 0), topBar = {
         Row(Modifier.fillMaxWidth().padding(8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(state.sessionTitle.ifBlank { "Otto" }, style = MaterialTheme.typography.titleMedium)
             Row { TextButton(onClick = { vm.show(Screen.SESSIONS) }) { Text("Sessions") }; TextButton(onClick = { vm.show(Screen.SETTINGS) }) { Text("Settings") } }
@@ -119,7 +147,7 @@ fun ChatScreen(state: UiState, vm: ChatViewModel) {
                 TextButton(onClick = vm::resumeAfterHandover) { Text("Resume") }
             } }
             if (state.error.isNotBlank()) Text(state.error, color = MaterialTheme.colorScheme.error)
-            LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            LazyColumn(Modifier.weight(1f), state = list, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(state.messages) { m -> Card { Column(Modifier.padding(12.dp)) { Text(m.role, style = MaterialTheme.typography.labelSmall); Text(m.text) } } }
                 if (state.board.isNotEmpty()) item { Card { Column(Modifier.padding(12.dp)) { state.board.takeLast(6).forEach { Text(it, style = MaterialTheme.typography.bodySmall) } } } }
             }
