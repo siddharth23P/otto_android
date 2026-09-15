@@ -333,44 +333,74 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
             val current = lastSnapshot ?: snapshotNow()
             guard.requireActionable(current)
             guard.requireSubmit(current)
-            recheck(current)?.let { fresh -> guard.requireActionable(fresh); guard.requireSubmit(fresh) }
+            val judged = recheck(current)?.also { fresh -> guard.requireActionable(fresh); guard.requireSubmit(fresh) } ?: current
+            return@serial pressEnter(judged)
         }
         val since = now()
         val ok = when (key) {
             "back" -> performGlobalAction(GLOBAL_ACTION_BACK)
             "home" -> performGlobalAction(GLOBAL_ACTION_HOME)
             "recents" -> performGlobalAction(GLOBAL_ACTION_RECENTS)
-            "enter" -> pressEnter()
             else -> throw DeviceException("not a key this knows: $key", "unsupported")
         }
         if (!ok) throw DeviceException("$key was not accepted", "failed")
         after("pressed $key", since, now())
     }
 
-    /** The keyboard's Go / Search / Send for the field being typed in. ACTION_IME_ENTER on the
-     *  input-focused node is the documented way, but a field can lose input focus to a suggestion
-     *  list while keeping it on screen, so the field the last read saw focused is tried next, and
-     *  last the service's own input connection (API 33+), which fires the field's declared IME
-     *  action exactly as the keyboard's action key does -- or a plain Enter when it declares none. */
-    private fun pressEnter(): Boolean {
+    /**
+     * The keyboard's Go / Search / Send for the field being typed in, and proof it did something.
+     *
+     * A field can accept an action and ignore it: on a Galaxy S23 (2026-09-16) Amazon's search box took
+     * ACTION_IME_ENTER, the call said "pressed enter", the suggestions stayed up, and the run typed the
+     * query again and again. So each way of pressing it is tried in turn -- the field's declared editor
+     * action through the service's input connection (API 33+, exactly what the keyboard's action key
+     * sends), ACTION_IME_ENTER on the input-focused node and on the field the last read saw focused, and
+     * a plain Enter key -- and the next is tried only when the screen did not change AND the app sent no
+     * event at all since, so a slow Send is never sent twice. When none moves the screen, the reply says
+     * so, and the model taps the suggestion or button it means instead of typing again.
+     */
+    private fun pressEnter(before: Snapshot): JsonObject {
+        val was = ScreenDiff.signature(before, null)
         val enter = AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id
-        findFocus(AccessibilityNodeInfo.FOCUS_INPUT)?.let { if (it.performAction(enter)) return true }
-        lastSnapshot?.nodes?.firstOrNull { it.editable && it.focused }?.let { ui ->
-            lastNodes[ui.index]?.let { if (it.performAction(enter)) return true }
+        val connection = { if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) inputMethod?.currentInputConnection else null }
+        val attempts: List<() -> Boolean> = listOf(
+            {
+                val ime = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) inputMethod else null
+                val action = (ime?.currentInputEditorInfo?.imeOptions ?: 0) and EditorInfo.IME_MASK_ACTION
+                val link = connection()
+                if (link != null && action != EditorInfo.IME_ACTION_NONE && action != EditorInfo.IME_ACTION_UNSPECIFIED) {
+                    link.performEditorAction(action); true
+                } else false
+            },
+            { findFocus(AccessibilityNodeInfo.FOCUS_INPUT)?.performAction(enter) == true },
+            {
+                before.nodes.firstOrNull { it.editable && it.focused }?.let { ui -> lastNodes[ui.index]?.performAction(enter) } == true
+            },
+            {
+                connection()?.let { link ->
+                    link.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER))
+                    link.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER))
+                    true
+                } ?: false
+            },
+        )
+        var since = now()
+        var last: Snapshot? = null
+        var accepted = false
+        for (attempt in attempts) {
+            since = now()
+            if (!runCatching(attempt).getOrDefault(false)) continue
+            accepted = true
+            val (changed, walk) = moved(was, null, since, now())
+            last = walk
+            if (changed) return after("pressed enter", since, now(), reuse = walk)
+            // The app reacted without changing what is read (a field that validated, a keyboard that
+            // redrew): pressing again could submit twice.
+            if (log.lastAnyAt >= since) break
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val ime = inputMethod ?: return false
-            val connection = ime.currentInputConnection ?: return false
-            val action = (ime.currentInputEditorInfo?.imeOptions ?: 0) and EditorInfo.IME_MASK_ACTION
-            if (action != EditorInfo.IME_ACTION_NONE && action != EditorInfo.IME_ACTION_UNSPECIFIED) {
-                connection.performEditorAction(action)
-            } else {
-                connection.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER))
-                connection.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER))
-            }
-            return true
-        }
-        return false
+        if (!accepted) throw DeviceException("nothing took the Enter -- tap the field first", "failed")
+        return after("pressed enter, but nothing on screen changed -- tap the suggestion or the button you mean " +
+            "instead of typing again", since, now(), reuse = last)
     }
 
     private fun swipeGesture(direction: String, w: Int, h: Int, x: Int = -1, y: Int = -1): GestureDescription {
