@@ -4,16 +4,23 @@ import androidx.compose.material3.Typography
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
+import dev.otto.phone.R
 
 /** The typeface says who is speaking: serif is Otto, mono is you and every number, model and id,
  *  sans is the UI. Every family is named here once; nothing else spells one. */
 object OttoFonts {
-    val mono: FontFamily = FontFamily.Monospace
-    val serif: FontFamily = FontFamily.Serif
+    /** IBM Plex Mono 400/600, the web app's mono, bundled under the OFL (third_party/fonts). */
+    val mono: FontFamily = FontFamily(
+        Font(R.font.ibm_plex_mono_regular, FontWeight.Normal),
+        Font(R.font.ibm_plex_mono_semibold, FontWeight.SemiBold),
+    )
+    /** Charis SIL, a Charter cut -- Charter heads the web app's serif stack -- bundled under the OFL. */
+    val serif: FontFamily = FontFamily(Font(R.font.charis_sil_regular, FontWeight.Normal))
     val sans: FontFamily = FontFamily.Default
 }
 
