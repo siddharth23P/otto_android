@@ -7,12 +7,14 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import dev.otto.phone.OttoApp
 import dev.otto.phone.access.OttoAccessibilityService
+import dev.otto.phone.protocol.Hello
+import dev.otto.phone.protocol.Reply
+import dev.otto.phone.protocol.SetupStatus
 import dev.otto.phone.service.OttoForegroundService
 import dev.otto.phone.transport.AgentTransport
-import dev.otto.phone.transport.EmbeddedTransport
 import dev.otto.phone.transport.EventBus
+import dev.otto.phone.transport.NEEDS_NEWER_OTTO
 import dev.otto.phone.transport.ServeProtocol
-import dev.otto.phone.transport.ServeTransport
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -51,9 +53,16 @@ data class UiState(
     val error: String = "",
 )
 
+private fun Reply<*>.failure(fallback: String): String? = when (this) {
+    is Reply.Ok -> null
+    is Reply.Err -> message.ifBlank { fallback }
+    Reply.Unsupported -> NEEDS_NEWER_OTTO
+}
+
 class ChatViewModel(app: Application) : AndroidViewModel(app) {
     private val prefs = (app as OttoApp).prefs
-    private var transport: AgentTransport? = null
+    private val connection = (app as OttoApp).connection
+    private val transport: AgentTransport? get() = connection.current
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state
 
@@ -83,39 +92,42 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun connect() = viewModelScope.launch {
-        transport?.close()
-        val app = getApplication<Application>()
-        val chosen: AgentTransport = if (prefs.transport() == "serve" && prefs.serveUrl().isNotBlank())
-            ServeTransport(prefs.serveUrl(), prefs.serveToken()) else EmbeddedTransport(app, prefs)
-        transport = chosen
-        val started = runCatching { chosen.start() }.getOrElse { errorJson(it.message ?: "could not start") }
-        val ok = started["ok"]?.jsonPrimitive?.content == "true"
-        if (!ok && chosen.name == "embedded") {
+        val (chosen, hello) = connection.connect()
+        if (hello !is Reply.Ok) {
             _state.update { it.copy(transportName = chosen.name, runtimeAvailable = false, ready = false,
-                error = "The embedded runtime is not in this build. Pair with otto serve in Settings.") }
+                error = if (chosen.name == "embedded") "The embedded runtime is not in this build. Pair with otto serve in Settings."
+                else hello.failure("could not connect") ?: "") }
             return@launch
         }
-        val status = runCatching { chosen.setupStatus() }.getOrElse { errorJson(it.message ?: "no status") }
-        applyStatus(chosen, status, ok)
+        when (val status = chosen.setupStatus()) {
+            is Reply.Ok -> applyStatus(chosen, status.value)
+            // An otto serve from before the setup op: keys live on that machine, and a hello is ready enough.
+            Reply.Unsupported -> applyHello(chosen, hello.value)
+            is Reply.Err -> _state.update { it.copy(transportName = chosen.name, runtimeAvailable = true, ready = false, error = status.message) }
+        }
     }
 
-    private fun applyStatus(chosen: AgentTransport, status: JsonObject, connected: Boolean) {
-        val keys = status["keys"]?.jsonObject?.mapValues { it.value.jsonPrimitive.content } ?: emptyMap()
-        val version = status["version"]?.jsonObject
-        val ready = status["ready"]?.jsonPrimitive?.content == "true"
+    private fun applyStatus(chosen: AgentTransport, status: SetupStatus) {
         _state.update {
-            it.copy(transportName = chosen.name, runtimeAvailable = connected, ready = ready, keys = keys,
-                versionLine = version?.let { v -> "otto ${v["otto"]?.jsonPrimitive?.content} · api ${v["api"]?.jsonPrimitive?.content} · ${chosen.name}" } ?: "",
-                error = status["error"]?.jsonObject?.get("message")?.jsonPrimitive?.content ?: "")
+            it.copy(transportName = chosen.name, runtimeAvailable = true, ready = status.ready, keys = status.maskedKeys,
+                versionLine = "otto ${status.version.otto} · api ${status.version.api} · ${chosen.name}", error = "")
         }
-        if (ready) openSession(null)
+        if (status.ready) openSession(null)
+    }
+
+    private fun applyHello(chosen: AgentTransport, hello: Hello) {
+        _state.update {
+            it.copy(transportName = chosen.name, runtimeAvailable = true, ready = true, keys = emptyMap(),
+                versionLine = "otto ${hello.ottoVersion} · api ${hello.apiVersion} · ${chosen.name}", error = "")
+        }
+        openSession(null)
     }
 
     fun setKey(name: String, value: String) = viewModelScope.launch {
         val t = transport ?: return@launch
         val reply = t.setKey(name, value)
-        if (reply["ok"]?.jsonPrimitive?.content == "true") applyStatus(t, t.setupStatus(), true)
-        else _state.update { it.copy(error = reply["error"]?.jsonObject?.get("message")?.jsonPrimitive?.content ?: "could not save the key") }
+        if (reply is Reply.Ok) (t.setupStatus() as? Reply.Ok)?.let { applyStatus(t, it.value) }
+        else _state.update { it.copy(error = if (reply is Reply.Unsupported) "keys live on the machine running otto serve" else reply.failure("could not save the key") ?: "") }
     }
 
     fun pairServe(pairing: String) = viewModelScope.launch {
@@ -147,24 +159,27 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     fun openSession(ref: String?) = viewModelScope.launch {
         val t = transport ?: return@launch
-        val reply = t.openSession(ref)
-        val id = reply["session_id"]?.jsonPrimitive?.content ?: return@launch
-        val messages = if (ref != null) runCatching { t.transcript(id) }.getOrNull()?.get("messages")?.jsonArray?.map { m ->
-            Message(m.jsonObject["role"]?.jsonPrimitive?.content ?: "otto", m.jsonObject["text"]?.jsonPrimitive?.content ?: "")
-        } ?: emptyList() else emptyList()
-        _state.update { it.copy(sessionId = id, sessionTitle = reply["title"]?.jsonPrimitive?.content ?: "", messages = messages,
+        val opened = when (val reply = t.openSession(ref)) {
+            is Reply.Ok -> reply.value
+            else -> { _state.update { it.copy(error = reply.failure("could not open the session") ?: "") }; return@launch }
+        }
+        val messages = if (ref != null) (t.transcript(opened.sessionId) as? Reply.Ok)?.value?.messages?.map { Message(it.role, it.text) } ?: emptyList()
+        else emptyList()
+        _state.update { it.copy(sessionId = opened.sessionId, sessionTitle = opened.title, messages = messages,
             board = emptyList(), status = "", screen = Screen.CHAT) }
     }
 
     fun loadSessions() = viewModelScope.launch {
-        val rows = transport?.listSessions()?.get("sessions")?.jsonArray?.map { r ->
-            val o = r.jsonObject
-            SessionRow(o["id"]?.jsonPrimitive?.content ?: "", o["title"]?.jsonPrimitive?.content ?: "", o["turns"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0, o["age"]?.jsonPrimitive?.content ?: "")
-        } ?: emptyList()
-        _state.update { it.copy(sessions = rows) }
+        val reply = transport?.listSessions() ?: return@launch
+        val rows = (reply as? Reply.Ok)?.value?.sessions?.map { SessionRow(it.id, it.title, it.turns, it.age) } ?: emptyList()
+        _state.update { it.copy(sessions = rows, error = reply.failure("could not list sessions") ?: it.error) }
     }
 
-    fun deleteSession(id: String) = viewModelScope.launch { transport?.deleteSession(id); loadSessions() }
+    fun deleteSession(id: String) = viewModelScope.launch {
+        val reply = transport?.deleteSession(id) ?: return@launch
+        reply.failure("could not delete the session")?.let { message -> _state.update { it.copy(error = message) } }
+        loadSessions()
+    }
 
     fun send(text: String) = viewModelScope.launch {
         val t = transport ?: return@launch
@@ -172,9 +187,9 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         refreshService()
         _state.update { it.copy(messages = it.messages + Message("you", text), running = true, status = "starting", board = emptyList(), error = "") }
         OttoForegroundService.start(getApplication(), text)
-        val reply = t.startTurn(_state.value.sessionId, text)
-        if (reply["ok"]?.jsonPrimitive?.content != "true") {
-            _state.update { it.copy(running = false, error = reply["error"]?.jsonObject?.get("message")?.jsonPrimitive?.content ?: "could not start") }
+        val reply = t.startTurn(_state.value.sessionId.ifBlank { null }, text)
+        if (reply !is Reply.Ok) {
+            _state.update { it.copy(running = false, error = reply.failure("could not start") ?: "") }
             OttoForegroundService.stop(getApplication())
         }
     }
@@ -219,11 +234,4 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         }
         OttoAccessibilityService.instance?.guard?.let { g -> _state.update { it.copy(handedOver = g.handedOver, guardLog = g.log.toList().takeLast(20)) } }
     }
-
-    private fun errorJson(message: String): JsonObject = kotlinx.serialization.json.buildJsonObject {
-        put("ok", kotlinx.serialization.json.JsonPrimitive(false))
-        put("error", kotlinx.serialization.json.buildJsonObject { put("code", kotlinx.serialization.json.JsonPrimitive("failed")); put("message", kotlinx.serialization.json.JsonPrimitive(message)) })
-    }
-
-    override fun onCleared() { transport?.close(); super.onCleared() }
 }
