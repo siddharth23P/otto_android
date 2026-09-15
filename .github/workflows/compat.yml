@@ -21,10 +21,14 @@ jobs:
     steps:
       - id: list
         run: |
+          python -m pip install --quiet --disable-pip-version-check packaging
           python - <<'PY' >> "$GITHUB_OUTPUT"
           import json, sys, time, urllib.error, urllib.request
 
+          from packaging.version import InvalidVersion, Version
+
           URL = "https://pypi.org/pypi/otto-cli-agent/json"
+          FLOOR = Version("0.2.0")
 
 
           def published():
@@ -50,15 +54,29 @@ jobs:
               raise SystemExit(1)
 
 
-          def number(version):
-              return tuple(int(part) for part in version.split(".")[:3] if part.isdigit())
+          def installable(releases):
+              """The stable releases at or above the floor, oldest first."""
+              found = []
+              for raw in releases:
+                  try:
+                      version = Version(raw)
+                  except InvalidVersion:
+                      continue
+                  # is_prerelease covers dev builds as well as a/b/rc. None of
+                  # them is what a phone would install, so none of them may
+                  # take one of the three slots a real release is owed.
+                  if version.is_prerelease or version < FLOOR:
+                      continue
+                  found.append((version, raw))
+              found.sort(key=lambda pair: pair[0])
+              return [raw for _, raw in found]
 
 
           releases = published()
           if releases is None:
               versions = ["git"]
           else:
-              versions = sorted((v for v in releases if number(v) >= (0, 2, 0)), key=number)[-3:] or ["git"]
+              versions = installable(releases)[-3:] or ["git"]
           print("versions=" + json.dumps(versions))
           PY
   bridge:
