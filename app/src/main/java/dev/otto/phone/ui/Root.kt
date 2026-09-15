@@ -15,6 +15,7 @@ import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.otto.phone.state.Route
 import dev.otto.phone.ui.chat.ChatScreen
+import dev.otto.phone.ui.document.DocumentScreen
 import dev.otto.phone.ui.theme.OttoTheme
 
 /** The ViewModels every screen draws from, passed down as one handle. */
@@ -56,8 +57,9 @@ fun OttoRoot(m: Models) {
         when (app.disclosureAccepted) {
             null -> Unit
             false -> DisclosureScreen(onAccept = { m.app.acceptDisclosure() })
-            true -> when (app.stack.top) {
+            true -> when (val top = app.stack.top) {
                 Route.Settings -> SettingsScreen(m)
+                is Route.Document -> DocumentScreen(top.document, onBack = { m.app.back() })
                 else -> ChatScreen(m)
             }
         }
