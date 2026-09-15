@@ -62,27 +62,15 @@ jobs:
             adb shell am start -n dev.otto.phone/.ui.MainActivity
             sleep 8
             mkdir -p shots
-            adb exec-out screencap -p > shots/1-disclosure-top.png
-            # The accept button is the last thing in a long scroll.
-            for _ in 1 2 3; do adb shell input swipe 540 1800 540 500 250; sleep 1; done
-            adb exec-out screencap -p > shots/2-disclosure-end.png
+            adb exec-out screencap -p > shots/1-disclosure.png
             adb shell uiautomator dump /sdcard/ui.xml > /dev/null
             adb pull /sdcard/ui.xml ui.xml > /dev/null
-            tap=$(python3 - <<'PY'
-            import re, sys
-            xml = open("ui.xml", encoding="utf-8").read()
-            hit = re.search(r'text="I understand, continue".*?bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', xml)
-            if not hit:
-                sys.exit("accept button not in the dump")
-            x1, y1, x2, y2 = map(int, hit.groups())
-            print((x1 + x2) // 2, (y1 + y2) // 2)
-            PY
-            )
-            adb shell input tap $tap
+            adb shell input tap $(python3 -c 'import re;x=open("ui.xml").read();i=x.index("I understand, continue");m=re.search(r"bounds=.\[(\d+),(\d+)\]\[(\d+),(\d+)\]",x[i:]);a,b,c,d=map(int,m.groups());print((a+c)//2,(b+d)//2)')
             sleep 6
-            adb exec-out screencap -p > shots/3-setup.png
-            for _ in 1 2; do adb shell input swipe 540 1800 540 500 250; sleep 1; done
-            adb exec-out screencap -p > shots/4-setup-end.png
+            adb exec-out screencap -p > shots/2-setup.png
+            adb shell input swipe 540 1800 540 700 250
+            sleep 2
+            adb exec-out screencap -p > shots/3-setup-end.png
             adb shell dumpsys accessibility | grep -q OttoAccessibilityService
       - uses: actions/upload-artifact@v7
         if: always()
