@@ -118,7 +118,7 @@ fun ChatScreen(m: Models) {
             Column(Modifier.fillMaxSize()) {
                 ChatTopBar(
                     spend = chat.usage?.let { Format.formatCost(it.cost, ChatText.UNKNOWN_COST) + if (!it.fullyPriced && it.cost != null) "+" else "" },
-                    onMenu = { m.sessions.load(); scope.launch { drawer.open() } },
+                    onMenu = { m.sessions.load(); m.sessions.loadUsage(); scope.launch { drawer.open() } },
                     onSettings = { m.app.push(Route.Settings) },
                     onCopyLast = {
                         val last = m.chat.lastAnswer
