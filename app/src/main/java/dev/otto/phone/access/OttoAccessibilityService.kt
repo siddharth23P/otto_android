@@ -8,6 +8,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.view.Display
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
@@ -50,6 +51,10 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
     //: answer for that same capture, and a blind tap may only follow a look at it.
     private var lastCapture: Triple<Long, String, JsonObject>? = null
     private var lookedId: String? = null
+    /** When the screen last said it changed, and the wait that reads it: an action is read back once the
+     *  screen goes quiet, not after a fixed sleep. */
+    private val log = EventLog()
+    private val settler = Settler(SystemClock::uptimeMillis, Thread::sleep, log)
     lateinit var guard: PolicyGuard
     private lateinit var catalog: AppCatalog
 
@@ -68,7 +73,18 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
         super.onDestroy()
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) = Unit
+    /** Only noted, never read: the node an event carries is not needed, and fetching it costs a call. */
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        val kind = when (event?.eventType) {
+            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> Kind.CONTENT
+            AccessibilityEvent.TYPE_VIEW_SCROLLED -> Kind.SCROLL
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> Kind.STATE
+            AccessibilityEvent.TYPE_WINDOWS_CHANGED -> Kind.WINDOWS
+            else -> return
+        }
+        log.record(kind, event.packageName?.toString() ?: "", SystemClock.uptimeMillis())
+    }
+
     override fun onInterrupt() = Unit
 
     // -- run on the actions thread, waited for by the bridge's caller ------
@@ -83,7 +99,10 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
 
     // -- reading -------------------------------------------------------------
 
-    private fun snapshotNow(): Snapshot {
+    /** Walks the window in front. `settled` says whether the screen had stopped changing. A walk that only
+     *  checks a judgement again (`keep` false) leaves the screen actions quote, and its nodes, alone. */
+    private fun snapshotNow(settled: Boolean = true, keep: Boolean = true): Snapshot {
+        val takenAt = SystemClock.uptimeMillis()
         val root = rootInActiveWindow ?: throw DeviceException("no window is in front to read", "failed")
         val nodes = mutableMapOf<Int, AccessibilityNodeInfo>()
         val walked = TreeWalker.walk(AndroidWalkNode(root)) { index, node -> nodes[index] = (node as AndroidWalkNode).info }
@@ -96,9 +115,9 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
         val snapshot = Snapshot(
             snapshotId = "s${counter.incrementAndGet()}", packageName = pkg, label = catalog.label(pkg),
             width = metrics.widthPixels, height = metrics.heightPixels, keyboard = keyboard, secure = secure, nodes = walked,
+            takenAt = takenAt, settled = settled,
         )
-        lastSnapshot = snapshot
-        lastNodes = nodes
+        if (keep) { lastSnapshot = snapshot; lastNodes = nodes }
         return snapshot
     }
 
@@ -116,14 +135,28 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
         buildJsonObject { put("package", pkg); put("label", catalog.label(pkg)) }
     }
 
-    private fun after(done: String): JsonObject {
-        Thread.sleep(350)
-        val after = runCatching { snapshotNow() }.getOrNull()
-        val json = after?.let { s ->
-            if (guard.packageVerdict(s.packageName, s.label).isNotEmpty()) null else s.toJson()
-        }
-        return doneWith(done, json)
+    /** A snapshot as a reply may carry it: not at all when a payment app is in front, whose digest is
+     *  itself a leak. Every reply with an `after` goes through here. */
+    private fun shown(snapshot: Snapshot?): JsonObject? =
+        snapshot?.takeIf { guard.packageVerdict(it.packageName, it.label).isEmpty() }?.toJson()
+
+    /** The screen once it stopped changing after an action taken between `since` and `actedAt`, or at the
+     *  policy's cap, marked unsettled. One walk. */
+    private fun settledSnapshot(since: Long, actedAt: Long, policy: SettlePolicy, until: (() -> Boolean)? = null): Snapshot? {
+        val settle = settler.await(since, actedAt, policy, until)
+        return runCatching { snapshotNow(settled = settle.settled) }.getOrNull()
     }
+
+    /** An action's reply: what was done, and the screen after it -- `reuse` when the action already read it. */
+    private fun after(done: String, since: Long, actedAt: Long, policy: SettlePolicy = SettlePolicy.ACTION, reuse: Snapshot? = null): JsonObject =
+        doneWith(done, shown(reuse ?: settledSnapshot(since, actedAt, policy)))
+
+    private fun now(): Long = SystemClock.uptimeMillis()
+
+    /** A check-only walk, when the screen a judgement was made on may not be the one in front any more:
+     *  it was read while still changing, or the screen has changed since. Null when it is still that one. */
+    private fun recheck(judged: Snapshot): Snapshot? =
+        if (guard.needsRecheck(judged, log.lastAnyAt)) snapshotNow(keep = false) else null
 
     private fun requireNode(snapshotId: String, index: Int): Pair<UiNode, AccessibilityNodeInfo> {
         val snapshot = lastSnapshot ?: throw DeviceException("read the screen first", "stale")
@@ -143,22 +176,34 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
         val under = guard.nodeAt(current, x, y)
         if (under == null) guard.requireBlindTap(current, lookedId)
         else { guard.requireTappable(under, commit = false, texts = current.nodes.map { it.label }); guard.requireTypeable(under.takeIf { it.password }) }
+        recheck(current)?.let { fresh -> guard.requireStillAtPoint(current, fresh, x, y) }
+        val since = now()
         if (!Gestures.dispatch(this, Gestures.tap(x, y))) throw DeviceException("the tap was not delivered", "failed")
-        after("tapped $x,$y")
+        after("tapped $x,$y", since, now())
     }
 
     override fun tapNode(snapshotId: String, node: Int, long: Boolean, commit: Boolean): JsonObject = serial {
-        guard.requireActionable(lastSnapshot)
+        val current = lastSnapshot
+        guard.requireActionable(current)
         val (ui, info) = requireNode(snapshotId, node)
-        guard.requireTappable(ui, commit, texts = lastSnapshot?.nodes?.map { it.label } ?: emptyList())
+        guard.requireTappable(ui, commit, texts = current?.nodes?.map { it.label } ?: emptyList())
+        // Judged again on what is in front now when the screen moved since it was read. The click still
+        // goes to the node object kept from that read, so it must still show what was judged.
+        val target = current?.let { recheck(it) }?.let { fresh ->
+            guard.requireStillTappable(current, fresh, node, commit).also {
+                if (!info.refresh() || info.shownLabel() != ui.label) throw DeviceException("[$node] '${ui.label}' changed; read the screen again", "stale")
+            }
+        } ?: ui
         val action = if (long) AccessibilityNodeInfo.ACTION_LONG_CLICK else AccessibilityNodeInfo.ACTION_CLICK
-        val done = info.performAction(action) || Gestures.dispatch(this, Gestures.tap(ui.centreX, ui.centreY, long))
+        val since = now()
+        val done = info.performAction(action) || Gestures.dispatch(this, Gestures.tap(target.centreX, target.centreY, long))
         if (!done) throw DeviceException("could not tap [$node] '${ui.label}'", "failed")
-        after("${if (long) "long-pressed" else "tapped"} [$node] '${ui.label}'")
+        after("${if (long) "long-pressed" else "tapped"} [$node] '${ui.label}'", since, now())
     }
 
     override fun typeText(text: String, node: Int): JsonObject = serial {
         guard.requireActionable(lastSnapshot)
+        val since = now()
         val target: AccessibilityNodeInfo? = if (node >= 0) {
             val (ui, info) = requireNode(lastSnapshot?.snapshotId ?: "", node)
             guard.requireTypeable(ui)
@@ -190,7 +235,7 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
             ok = target.performAction(AccessibilityNodeInfo.ACTION_PASTE)
         }
         if (!ok) throw DeviceException("nothing accepted the text -- tap the field first", "failed")
-        after("typed ${text.take(60)}")
+        after("typed ${text.take(60)}", since, now())
     }
 
     override fun press(key: String): JsonObject = serial {
@@ -200,7 +245,9 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
             val current = lastSnapshot ?: snapshotNow()
             guard.requireActionable(current)
             guard.requireSubmit(current)
+            recheck(current)?.let { fresh -> guard.requireActionable(fresh); guard.requireSubmit(fresh) }
         }
+        val since = now()
         val ok = when (key) {
             "back" -> performGlobalAction(GLOBAL_ACTION_BACK)
             "home" -> performGlobalAction(GLOBAL_ACTION_HOME)
@@ -212,7 +259,7 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
             else -> throw DeviceException("not a key this knows: $key", "unsupported")
         }
         if (!ok) throw DeviceException("$key was not accepted", "failed")
-        after("pressed $key")
+        after("pressed $key", since, now())
     }
 
     private fun swipeGesture(direction: String, w: Int, h: Int, x: Int = -1, y: Int = -1): GestureDescription {
@@ -265,10 +312,15 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
         guard.requireActionable(current)
         val from = x >= 0 && y >= 0
         // A swipe that starts on an element acts on it ("Slide to pay"): judged like a tap on it.
-        if (from) guard.nodeAt(current, x, y)?.let { guard.requireTappable(it, commit = false, texts = current.nodes.map { n -> n.label }) }
+        if (from) {
+            guard.nodeAt(current, x, y)?.let { guard.requireTappable(it, commit = false, texts = current.nodes.map { n -> n.label }) }
+            recheck(current)?.let { fresh -> guard.requireStillSwipeable(current, fresh, x, y) }
+        }
         val m = resources.displayMetrics
-        if (!Gestures.dispatch(this, swipeGesture(direction, m.widthPixels, m.heightPixels, x, y))) throw DeviceException("the swipe was not delivered", "failed")
-        after(if (from) "swiped $direction from $x,$y" else "swiped $direction")
+        val gesture = swipeGesture(direction, m.widthPixels, m.heightPixels, x, y)
+        val since = now()
+        if (!Gestures.dispatch(this, gesture)) throw DeviceException("the swipe was not delivered", "failed")
+        after(if (from) "swiped $direction from $x,$y" else "swiped $direction", since, now())
     }
 
     private fun scrollsSideways(info: AccessibilityNodeInfo): Boolean {
@@ -316,6 +368,7 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
         val action = if (forward) AccessibilityNodeInfo.ACTION_SCROLL_FORWARD else AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
         // A view can accept the scroll action and not move (a WebView often does): what counts is the
         // screen changing, and when it does not, the finger does it instead.
+        val since = now()
         var moved = target?.second?.performAction(action) == true && changed(was, region)
         if (!moved) {
             val m = resources.displayMetrics
@@ -324,7 +377,7 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
             if (!Gestures.dispatch(this, gesture)) throw DeviceException("could not scroll", "failed")
             moved = changed(was, region)
         }
-        after(if (moved) "scrolled $direction" else "scrolled $direction, but nothing on screen moved -- the end of the list, or a view that does not scroll that way")
+        after(if (moved) "scrolled $direction" else "scrolled $direction, but nothing on screen moved -- the end of the list, or a view that does not scroll that way", since, now(), SettlePolicy.SCROLL)
     }
 
     // -- looking -------------------------------------------------------------
@@ -389,7 +442,7 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
         Thread.sleep(1500)
         buildJsonObject {
             put("package", packageName); put("label", catalog.label(packageName))
-            runCatching { snapshotNow() }.getOrNull()?.let { put("after", it.toJson()) }
+            shown(runCatching { snapshotNow() }.getOrNull())?.let { put("after", it) }
         }
     }
 
@@ -398,7 +451,7 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
         Thread.sleep(1200)
         buildJsonObject {
             put("page", page)
-            runCatching { snapshotNow() }.getOrNull()?.let { put("after", it.toJson()) }
+            shown(runCatching { snapshotNow() }.getOrNull())?.let { put("after", it) }
         }
     }
 
@@ -425,7 +478,7 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
         catalog.forgetLabels()
         buildJsonObject {
             put("state", state)
-            runCatching { snapshotNow() }.getOrNull()?.let { put("after", it.toJson()) }
+            shown(runCatching { snapshotNow() }.getOrNull())?.let { put("after", it) }
         }
     }
 
@@ -433,6 +486,10 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
         @Volatile var instance: OttoAccessibilityService? = null
     }
 }
+
+/** The label the walker gives a node: its text, else its description. */
+private fun AccessibilityNodeInfo.shownLabel(): String =
+    (text?.toString()?.trim() ?: "").ifBlank { contentDescription?.toString()?.trim() ?: "" }
 
 /** AccessibilityNodeInfo as a WalkNode. The walker reports kept indices, and the service keeps the info by index. */
 private class AndroidWalkNode(val info: AccessibilityNodeInfo) : WalkNode {

@@ -1,10 +1,13 @@
 package dev.otto.phone
 
+import dev.otto.phone.access.Snapshot
 import dev.otto.phone.access.TreeWalker
 import dev.otto.phone.access.WalkNode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 
 class TreeWalkerTest {
     private class Fake(
@@ -47,6 +50,15 @@ class TreeWalkerTest {
         val nodes = TreeWalker.walk(root)
         assertEquals(listOf("", "add-to-cart-button", "cart_tab"), nodes.map { it.viewId })
         assertTrue(nodes[1].toJson().toString().contains("\"v\":\"add-to-cart-button\""))
+    }
+
+    @Test fun aSnapshotKeepsEveryKeyAndSaysWhetherItSettled() {
+        val nodes = TreeWalker.walk(Fake(text = "Continue", className = "android.widget.Button", isClickable = true, isCheckable = true, viewId = "go"))
+        val json = Snapshot("s1", "com.example.shop", "Shop", 1080, 2400, false, false, nodes, takenAt = 5, settled = false).toJson()
+        assertEquals(setOf("i", "t", "d", "r", "b", "c", "e", "s", "p", "f", "k", "v"), json["nodes"]!!.jsonArray[0].jsonObject.keys)
+        assertTrue(json.keys.containsAll(listOf("snapshot_id", "app", "screen", "keyboard", "secure", "nodes", "settled")))
+        assertEquals("false", json["settled"].toString())
+        assertEquals("true", Snapshot("s2", "p", "", 1, 1, false, false, nodes).toJson()["settled"].toString())
     }
 
     @Test fun theWalkIsBounded() {

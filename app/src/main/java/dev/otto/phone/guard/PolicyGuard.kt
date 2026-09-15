@@ -161,6 +161,58 @@ class PolicyGuard(val rules: GuardRules) {
         if (node != null && node.password) throw guard(note("that is a password field -- the person types there"), handover = true)
     }
 
+    /** Whether a judgement made on `snapshot` must be made again on a fresh walk before acting: it was
+     *  read while the screen was still changing, or the screen has said it changed since. With no
+     *  snapshot the caller reads the screen afresh anyway. */
+    fun needsRecheck(snapshot: Snapshot?, lastEventAt: Long): Boolean =
+        snapshot != null && (!snapshot.settled || lastEventAt > snapshot.takenAt)
+
+    /** Element `index` of `old`, judged again on `fresh` before it is tapped. It must still be there --
+     *  the same label and id, overlapping where it was -- or the tap is stale; the fresh screen is judged
+     *  whole, and the element with the strings of both walks, so a total that appeared since makes
+     *  "Continue" a payment step. Whatever is drawn over its centre now is what a fallback tap lands
+     *  on, and is judged the same. Returns the element as it is now. */
+    fun requireStillTappable(old: Snapshot, fresh: Snapshot, index: Int, commit: Boolean): UiNode {
+        val was = old.node(index) ?: throw stale("no element [$index] on this screen")
+        val now = fresh.nodes.filter { it.label == was.label && it.viewId == was.viewId && overlap(it, was) > 0 }
+            .maxByOrNull { overlap(it, was) }
+            ?: throw stale("[$index] '${was.label.take(60)}' is not where it was any more; read the screen again")
+        requireActionable(fresh)
+        val texts = old.nodes.map { it.label } + fresh.nodes.map { it.label }
+        requireTappable(now, commit, texts)
+        nodeAt(fresh, now.centreX, now.centreY)?.let { requireTappable(it, commit, texts) }
+        return now
+    }
+
+    /** A tap by coordinates, judged again on `fresh`: the same element must still be under the point, or
+     *  still nothing on a screen that still has nothing to tap by text. */
+    fun requireStillAtPoint(old: Snapshot, fresh: Snapshot, x: Int, y: Int): UiNode? {
+        val was = nodeAt(old, x, y)
+        val now = nodeAt(fresh, x, y)
+        if ((was == null) != (now == null) || (was != null && now != null && (was.label != now.label || was.viewId != now.viewId))) {
+            throw stale("what is under $x,$y changed; read the screen again")
+        }
+        requireActionable(fresh)
+        if (now == null) {
+            if (fresh.nodes.any { it.clickable }) throw guard(note("nothing in the tree is under that point; tap an element by its text"), handover = false)
+            return null
+        }
+        requireTappable(now, commit = false, texts = old.nodes.map { it.label } + fresh.nodes.map { it.label })
+        requireTypeable(now)
+        return now
+    }
+
+    /** A swipe from a point, judged again on `fresh`: whatever is under the point now is what it drags. */
+    fun requireStillSwipeable(old: Snapshot, fresh: Snapshot, x: Int, y: Int) {
+        requireActionable(fresh)
+        nodeAt(fresh, x, y)?.let { requireTappable(it, commit = false, texts = old.nodes.map { n -> n.label } + fresh.nodes.map { n -> n.label }) }
+    }
+
+    private fun overlap(a: UiNode, b: UiNode): Long =
+        maxOf(0, minOf(a.right, b.right) - maxOf(a.left, b.left)).toLong() * maxOf(0, minOf(a.bottom, b.bottom) - maxOf(a.top, b.top))
+
+    private fun stale(message: String) = dev.otto.phone.bridge.DeviceException(message, "stale")
+
     /** The smallest element under a point, for a tap by coordinates. */
     fun nodeAt(snapshot: Snapshot, x: Int, y: Int): UiNode? =
         snapshot.nodes.filter { x in it.left..it.right && y in it.top..it.bottom }

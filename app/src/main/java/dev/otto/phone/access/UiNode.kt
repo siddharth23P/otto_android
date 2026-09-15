@@ -38,7 +38,8 @@ data class UiNode(
     }
 }
 
-/** The whole screen at one moment. `snapshotId` is what a later tap_node must quote. */
+/** The whole screen at one moment. `snapshotId` is what a later tap_node must quote. `takenAt` is when
+ *  the walk began (uptime); `settled` is false when the screen was still changing as it was read. */
 data class Snapshot(
     val snapshotId: String,
     val packageName: String,
@@ -48,12 +49,14 @@ data class Snapshot(
     val keyboard: Boolean,
     val secure: Boolean,
     val nodes: List<UiNode>,
+    val takenAt: Long = 0,
+    val settled: Boolean = true,
 ) {
     fun toJson(): JsonObject = buildJsonObject {
         put("snapshot_id", snapshotId)
         put("app", buildJsonObject { put("package", packageName); put("label", label) })
         put("screen", buildJsonObject { put("w", width); put("h", height) })
-        put("keyboard", keyboard); put("secure", secure)
+        put("keyboard", keyboard); put("secure", secure); put("settled", settled)
         put("nodes", JsonArray(nodes.map { it.toJson() }))
     }
 
