@@ -50,6 +50,8 @@ fun Composer(
     onStop: () -> Unit,
     chips: List<String>,
     modifier: Modifier = Modifier,
+    /** Why Send is disabled, for TalkBack. */
+    disabledReason: String = "type a message first",
 ) {
     val c = OttoTheme.colors
     val t = OttoTheme.type
@@ -78,7 +80,11 @@ fun Composer(
                 },
             )
             if (running) StopButton(onStop)
-            if (!running || asking) SendButton(enabled = canSend && value.text.isNotBlank(), onClick = onSend)
+            if (!running || asking) SendButton(
+                enabled = canSend && value.text.isNotBlank(),
+                reason = if (canSend) "type a message first" else disabledReason,
+                onClick = onSend,
+            )
         }
         if (chips.isNotEmpty()) Row(Modifier.padding(bottom = 2.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             chips.forEach { Text(it, style = t.chip.copy(color = c.faint), maxLines = 1) }
@@ -87,12 +93,12 @@ fun Composer(
 }
 
 @Composable
-private fun SendButton(enabled: Boolean, onClick: () -> Unit) {
+private fun SendButton(enabled: Boolean, reason: String, onClick: () -> Unit) {
     val c = OttoTheme.colors
     val interaction = remember { MutableInteractionSource() }
     Box(
         Modifier.minimumInteractiveComponentSize().testTag("chat_send")
-            .semantics { contentDescription = "send"; if (!enabled) stateDescription = "type a message first" }
+            .semantics { contentDescription = "send"; if (!enabled) stateDescription = reason }
             .pressScale(interaction)
             .size(36.dp).clip(OttoShapes.r2)
             .background(if (enabled) c.accent else c.accent.copy(alpha = 0.4f))

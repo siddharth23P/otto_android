@@ -185,7 +185,7 @@ private fun SessionItem(
     var menu by remember { mutableStateOf(false) }
     val title = row.title.ifBlank { "(untitled)" }
     Row(
-        Modifier.fillMaxWidth().clip(OttoShapes.r1).background(if (current) c.accSoft else c.bg2),
+        Modifier.fillMaxWidth().testTag("session_row").clip(OttoShapes.r1).background(if (current) c.accSoft else c.bg2),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(
@@ -204,14 +204,14 @@ private fun SessionItem(
                 expanded = menu, onDismissRequest = { menu = false },
                 containerColor = c.card, tonalElevation = 0.dp, shadowElevation = 0.dp, shape = OttoShapes.r2, border = BorderStroke(1.dp, c.line),
             ) {
-                MenuItem("rename", OttoIcons.Pencil) { menu = false; onRename() }
-                MenuItem("export", OttoIcons.Download) { menu = false; onExport() }
+                MenuItem("rename", OttoIcons.Pencil, Modifier.testTag("session_rename")) { menu = false; onRename() }
+                MenuItem("export", OttoIcons.Download, Modifier.testTag("session_export")) { menu = false; onExport() }
                 // Tap twice: the first tap arms and keeps the menu open, the second deletes.
                 DropdownMenuItem(
                     text = { Text(if (armed) "sure? delete" else "delete", style = t.ui.copy(fontSize = 14.5.sp, color = c.bad)) },
                     leadingIcon = { Icon(OttoIcons.Trash, contentDescription = null, tint = c.bad, modifier = Modifier.height(16.dp)) },
                     onClick = { if (armed) menu = false; onDelete() },
-                    modifier = Modifier.semantics { if (armed) stateDescription = "tap again to delete" },
+                    modifier = Modifier.testTag("session_delete").semantics { if (armed) stateDescription = "tap again to delete" },
                 )
             }
         }

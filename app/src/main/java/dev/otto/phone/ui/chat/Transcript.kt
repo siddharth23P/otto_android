@@ -3,6 +3,15 @@ package dev.otto.phone.ui.chat
 import android.content.Context
 import android.content.Intent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import dev.otto.phone.ui.theme.Motion
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -103,18 +112,19 @@ private fun Pressable(text: String, actions: MessageActions, content: @Composabl
             expanded = menu, onDismissRequest = { menu = false },
             containerColor = c.card, tonalElevation = 0.dp, shadowElevation = 0.dp, shape = OttoShapes.r2, border = BorderStroke(1.dp, c.line),
         ) {
-            MenuItem("copy", OttoIcons.Copy) { menu = false; actions.onCopy(text) }
-            MenuItem("share", OttoIcons.Share) { menu = false; actions.onShare(text) }
-            MenuItem("quote", OttoIcons.Reply) { menu = false; actions.onQuote(text) }
+            MenuItem("copy", OttoIcons.Copy, Modifier.testTag("message_copy")) { menu = false; actions.onCopy(text) }
+            MenuItem("share", OttoIcons.Share, Modifier.testTag("message_share")) { menu = false; actions.onShare(text) }
+            MenuItem("quote", OttoIcons.Reply, Modifier.testTag("message_quote")) { menu = false; actions.onQuote(text) }
         }
     }
 }
 
 @Composable
-fun MenuItem(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector? = null, onClick: () -> Unit) {
+fun MenuItem(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector? = null, modifier: Modifier = Modifier, onClick: () -> Unit) {
     DropdownMenuItem(
         text = { Text(label, style = OttoTheme.type.ui.copy(fontSize = 14.5.sp)) },
         onClick = onClick,
+        modifier = modifier,
         leadingIcon = icon?.let { { Icon(it, contentDescription = null, tint = OttoTheme.colors.dim, modifier = Modifier.size(16.dp)) } },
     )
 }
@@ -178,7 +188,7 @@ fun LiveTurn(turn: TurnUi, nowMs: Long) {
         TraceFold(turn, ChatText.traceLabel(turn), nowMs)
         val streaming = turn.streaming
         if (streaming != null) Text(streaming, style = OttoTheme.type.answer)
-        else TypingDots(OttoTheme.colors.faint, Modifier.padding(vertical = 8.dp))
+        else TypingDots(OttoTheme.colors.faint, Modifier.padding(vertical = 8.dp).semantics { contentDescription = "otto is working" })
     }
 }
 
@@ -219,19 +229,27 @@ fun TraceFold(turn: TurnUi, label: String, nowMs: Long) {
     val turnDegrees by animateFloatAsState(if (open) 90f else 0f, tween(if (OttoTheme.reducedMotion) 0 else MotionTokens.FAST_MS), label = "chevron")
     val rule = c.line
     Column(Modifier.fillMaxWidth().drawBehind { drawLine(rule, Offset(0f, 0f), Offset(0f, size.height), 1.dp.toPx()) }.padding(start = 10.dp)) {
+        val title = if (turn.running) label else "$label · ${turn.thoughtTitle(nowMs)}"
         Row(
-            Modifier.fillMaxWidth().heightIn(min = 40.dp)
+            Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("trace_fold")
                 .clickable(role = Role.Button, onClickLabel = if (open) "fold the trace" else "show the trace") { open = !open }
-                .semantics { stateDescription = if (open) "expanded" else "collapsed" },
+                .semantics(mergeDescendants = true) {
+                    contentDescription = ChatText.spoken(title)
+                    stateDescription = if (open) "expanded" else "collapsed"
+                },
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Icon(OttoIcons.Brain, contentDescription = null, tint = c.faint, modifier = Modifier.size(12.dp))
-            val title = if (turn.running) label else "$label · ${turn.thoughtTitle(nowMs)}"
             Text(title, style = t.trace, maxLines = if (open) 3 else 1, modifier = Modifier.weight(1f, fill = false))
             Icon(OttoIcons.ChevronRight, contentDescription = null, tint = c.faint, modifier = Modifier.size(11.dp).rotate(turnDegrees))
         }
-        AnimatedVisibility(open) {
+        val reduced = OttoTheme.reducedMotion
+        AnimatedVisibility(
+            open,
+            enter = if (reduced) EnterTransition.None else expandVertically(Motion.mid()) + fadeIn(Motion.mid()),
+            exit = if (reduced) ExitTransition.None else shrinkVertically(Motion.fast()) + fadeOut(Motion.fast()),
+        ) {
             Column(Modifier.padding(start = 2.dp, bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 val lines = turn.lines
                 val shown = lines.takeLast(TRACE_SHOWN)
@@ -245,7 +263,10 @@ fun TraceFold(turn: TurnUi, label: String, nowMs: Long) {
                 turn.guardNotes.forEach { note -> Text("guard · $note", style = t.trace.copy(fontSize = 11.5.sp, color = c.warn)) }
                 turn.meter?.let { m ->
                     val color = when (m.level) { Board.Level.OK -> c.faint; Board.Level.WARN -> c.warn; Board.Level.BAD -> c.bad }
-                    Text("${m.bar} ${turn.calls}/${turn.budgetMax}", style = t.trace.copy(fontSize = 11.5.sp, color = color))
+                    Text(
+                        "${m.bar} ${turn.calls}/${turn.budgetMax}", style = t.trace.copy(fontSize = 11.5.sp, color = color),
+                        modifier = Modifier.semantics { contentDescription = "budget: ${turn.calls} of ${turn.budgetMax} model calls" },
+                    )
                 }
             }
         }
@@ -264,7 +285,10 @@ private fun TraceLine(line: String) {
         withStyle(SpanStyle(color = if (d.outcome == Board.Outcome.OK) c.ok else c.bad)) { append(d.text.substring(range)) }
         append(d.text.substring(range.last + 1))
     }
-    Text(text, style = OttoTheme.type.trace.copy(fontSize = 11.5.sp, lineHeight = 18.sp))
+    Text(
+        text, style = OttoTheme.type.trace.copy(fontSize = 11.5.sp, lineHeight = 18.sp),
+        modifier = Modifier.semantics { contentDescription = ChatText.spoken(d.text) },
+    )
 }
 
 /** Otto asks: an approval card with a 3 dp start edge, the question, and its choices (the first
@@ -273,14 +297,14 @@ private fun TraceLine(line: String) {
 @Composable
 fun AskCard(ask: AskUi, onChoice: (String) -> Unit) {
     val c = OttoTheme.colors
-    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min).background(c.card, OttoShapes.r2)) {
+    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min).background(c.card, OttoShapes.r2).testTag("ask_card")) {
         Box(Modifier.width(3.dp).fillMaxHeight().background(c.warn))
         Column(Modifier.weight(1f).padding(horizontal = 15.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("otto asks", style = OttoTheme.type.meta.copy(color = c.warn))
             Text(ask.question, style = OttoTheme.type.ui.copy(fontSize = 15.sp, lineHeight = 22.sp))
             if (ask.choices.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ask.choices.forEachIndexed { i, choice ->
-                    OttoButton(choice, { onChoice(choice) }, kind = if (i == 0) ButtonKind.PRIMARY else ButtonKind.OUTLINED)
+                    OttoButton(choice, { onChoice(choice) }, Modifier.testTag("ask_choice_$i"), kind = if (i == 0) ButtonKind.PRIMARY else ButtonKind.OUTLINED)
                 }
             }
             Text("or type an answer below", style = OttoTheme.type.meta)

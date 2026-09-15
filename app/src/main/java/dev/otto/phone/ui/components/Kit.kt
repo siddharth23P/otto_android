@@ -29,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -167,11 +168,14 @@ fun Banner(
         Box(Modifier.width(3.dp).fillMaxHeight().background(edge))
         Row(Modifier.weight(1f).padding(start = 13.dp, end = 5.dp, top = 5.dp, bottom = 5.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(text, style = OttoTheme.type.ui.copy(fontSize = 13.5.sp, color = c.dim), modifier = Modifier.weight(1f).padding(vertical = 8.dp))
-            if (secondAction != null) OttoButton(secondAction, onSecondAction, kind = ButtonKind.OUTLINED)
-            if (action != null) OttoButton(action, onAction, kind = ButtonKind.OUTLINED)
+            if (secondAction != null) OttoButton(secondAction, onSecondAction, Modifier.testTag(bannerTag(secondAction)), kind = ButtonKind.OUTLINED)
+            if (action != null) OttoButton(action, onAction, Modifier.testTag(bannerTag(action)), kind = ButtonKind.OUTLINED)
         }
     }
 }
+
+/** "banner_resume", "banner_turn_on": a banner action's test tag, from its label. */
+fun bannerTag(label: String): String = "banner_" + label.lowercase().replace(' ', '_')
 
 /** A toast: a card with a 3 dp start edge in clay, sans 13.5. */
 @Composable
@@ -197,7 +201,7 @@ fun OttoToastHost(state: SnackbarHostState, modifier: Modifier = Modifier) {
 fun ScreenBar(title: String, onBack: () -> Unit, modifier: Modifier = Modifier, actions: @Composable () -> Unit = {}) {
     Column(modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth().height(52.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconAction(OttoIcons.ArrowLeft, "back", onBack, Modifier.semantics { }, tint = OttoTheme.colors.ink)
+            IconAction(OttoIcons.ArrowLeft, "back", onBack, Modifier.testTag("screen_back"), tint = OttoTheme.colors.ink)
             Text(
                 title, style = OttoTheme.type.ui.copy(fontSize = 17.sp, fontWeight = FontWeight.Medium),
                 modifier = Modifier.weight(1f).padding(start = 4.dp).semantics { heading() }, maxLines = 1,
