@@ -148,7 +148,7 @@ class ListReducersTest {
         val learned = listOf(l1.copy(kind = kind), l2.copy(kind = kind))
         var s = LessonsReducer.reduce(LessonsState(tab = LessonTab.APP_NOTES), LessonsAction.NotesLoaded(Reply.Ok(NoteList(listOf(NoteSummary(pkg, true, 2), NoteSummary("com.x", false, 1))))))
         assertTrue(s.notesLoaded)
-        s = LessonsReducer.reduce(s, LessonsAction.NoteOpened(Reply.Ok(NoteDetail(pkg, "shipped text", learned, "shown text"))))
+        s = LessonsReducer.reduce(s, LessonsAction.NoteOpened(Reply.Ok(NoteDetail(pkg, "shipped text", learned, JsonPrimitive("shown text")))))
         assertEquals(learned, s.lessons[kind])
         s = LessonsReducer.reduce(s, LessonsAction.Deleted(kind, l1.id, Reply.Ok(LessonDeleted(kind, l1.id, true))))
         assertEquals(1, s.openNote!!.learned.size); assertEquals("shipped text", s.openNote!!.seeded)

@@ -51,14 +51,19 @@ data class OpenedSession(
 @Serializable
 data class TranscriptMessage(val role: String = "otto", val text: String = "")
 
+/** A protocol-2 reply to a request that carried an `id` puts the session's id in `session_id`, since
+ *  `id` then echoes the request; a protocol-1 reply names it `id`. `sessionRef` reads either. */
 @Serializable
 data class Transcript(
-    val id: String = "",
+    @SerialName("id") val wireId: String = "",
     val title: String = "",
     val turns: Int = 0,
     val earlier: String = "",
     val messages: List<TranscriptMessage> = emptyList(),
-)
+    @SerialName("session_id") val sessionId: String? = null,
+) {
+    val sessionRef: String get() = sessionId?.ifBlank { null } ?: wireId
+}
 
 @Serializable
 data class DeletedSession(@SerialName("session_id") val sessionId: String = "", val deleted: Boolean = false)
@@ -71,7 +76,11 @@ data class RenamedSession(@SerialName("session_id") val sessionId: String = "", 
 
 /** `data` is the export payload as otto wrote it; the app saves it as-is and hands it back to import. */
 @Serializable
-data class ExportedSession(val filename: String = "", val data: JsonElement = JsonNull)
+data class ExportedSession(
+    val filename: String = "",
+    val data: JsonElement = JsonNull,
+    @SerialName("session_id") val sessionId: String = "",
+)
 
 @Serializable
 data class ImportedSession(
@@ -119,6 +128,7 @@ data class SessionUsage(
     val turn: TurnTotals? = null,
     val title: String = "",
     val turns: Int = 0,
+    @SerialName("session_id") val sessionId: String = "",
 )
 
 // -- setup, doctor, models ----------------------------------------------------------------------------
@@ -142,14 +152,15 @@ data class VendorRow(
     @SerialName("masked_key") val maskedKey: String = "",
 )
 
-/** Serve's `status` says `key_status`; today's embedded entry says `keys`. Both are masked values. */
+/** Serve's `status` says `keys` and `vendors`; `key_status` and `vendor_rows` are read too, for the
+ *  drafts some builds shipped. Every key value is masked. */
 @Serializable
 data class SetupStatus(
     val available: Boolean = true,
     val ready: Boolean = false,
     @SerialName("key_status") val keyStatus: Map<String, String> = emptyMap(),
     val keys: Map<String, String> = emptyMap(),
-    @SerialName("vendor_rows") val vendorRows: List<VendorRow> = emptyList(),
+    @SerialName("vendors") @JsonNames("vendor_rows") val vendorRows: List<VendorRow> = emptyList(),
     val version: VersionInfo = VersionInfo(),
     @SerialName("setup_write") val setupWrite: Boolean = false,
     val compat: CompatInfo? = null,
@@ -158,7 +169,13 @@ data class SetupStatus(
 }
 
 @Serializable
-data class KeySet(val name: String = "", val shown: String = "")
+data class KeySet(
+    val name: String = "",
+    /** The key as otto shows it now (masked); older builds said `shown`. */
+    @SerialName("masked") @JsonNames("shown") val masked: String = "",
+    /** Whether otto is ready after this key; null from a build that did not say. */
+    val ready: Boolean? = null,
+)
 
 @Serializable
 data class ProviderHealth(
@@ -176,6 +193,7 @@ data class ModelInfo(
     @SerialName("display_name") val displayName: String? = null,
     val capabilities: List<String> = emptyList(),
     @SerialName("context_window") val contextWindow: Int? = null,
+    @SerialName("max_output_tokens") val maxOutputTokens: Int? = null,
 )
 
 @Serializable
@@ -184,6 +202,7 @@ data class ProbeResult(
     val ok: Boolean = false,
     val status: String = "",
     val detail: String = "",
+    @SerialName("model_count") val modelCount: Int? = null,
     val models: List<ModelInfo> = emptyList(),
 )
 
@@ -191,8 +210,17 @@ data class ProbeResult(
 data class DoctorReport(
     val providers: List<ProviderHealth> = emptyList(),
     val ready: Boolean = false,
+    /** What otto needs before it is ready, as the server words it (a list or a sentence). */
+    val required: JsonElement? = null,
     @SerialName("also_configured") val alsoConfigured: List<String> = emptyList(),
-)
+) {
+    val requiredText: String
+        get() = when (val r = required) {
+            is JsonArray -> r.mapNotNull { (it as? JsonPrimitive)?.content }.joinToString(", ")
+            is JsonPrimitive -> if (r is JsonNull) "" else r.content
+            else -> ""
+        }
+}
 
 @Serializable
 data class ModelList(val models: List<ModelInfo> = emptyList())
@@ -204,16 +232,22 @@ data class RouteRow(
     val task: String = "",
     val pin: String? = null,
     @SerialName("default") val default: String = "",
-    /** A provider name, or the (provider, …) tuple overrides.PROVIDER_ONLY holds. */
+    /** `{provider, reason}` or null; a bare provider name or a (provider, …) array from older drafts. */
     @SerialName("provider_only") val providerOnly: JsonElement? = null,
     @SerialName("phone_seat") val phoneSeat: String? = null,
 ) {
     val boundProvider: String?
         get() = when (val p = providerOnly) {
+            is JsonObject -> p.str("provider")?.ifBlank { null }
             is JsonPrimitive -> p.content.takeUnless { p is JsonNull || it.isBlank() }
             is JsonArray -> (p.firstOrNull() as? JsonPrimitive)?.content
             else -> null
         }
+
+    /** Why the task is bound to one provider, when the server said. */
+    val boundReason: String?
+        get() = (providerOnly as? JsonObject)?.str("reason")?.ifBlank { null }
+            ?: ((providerOnly as? JsonArray)?.getOrNull(1) as? JsonPrimitive)?.content?.ifBlank { null }
 }
 
 @Serializable
@@ -223,7 +257,7 @@ data class RouteOption(val spec: String, val label: String)
 
 /** `pin_options` returns (value, label) pairs, which JSON makes arrays; objects are read too. */
 @Serializable
-data class RouteOptions(val task: String = "", val options: List<JsonElement> = emptyList()) {
+data class RouteOptions(val task: String = "", val options: List<JsonElement> = emptyList(), val pin: String? = null) {
     val choices: List<RouteOption>
         get() = options.mapNotNull { o ->
             when (o) {
@@ -234,15 +268,20 @@ data class RouteOptions(val task: String = "", val options: List<JsonElement> = 
         }
 }
 
+/** `problems` are what otto found wrong with the routes after the change (it still made it). */
 @Serializable
-data class RouteChange(val task: String = "", val pin: String? = null)
+data class RouteChange(val task: String = "", val pin: String? = null, val problems: List<String> = emptyList())
 
 // -- lessons & app notes ------------------------------------------------------------------------------
 
+/** One stored lesson: `cue` → `action`, and how it went. A row otto could not parse has only `text`. */
 @Serializable
 data class LessonRow(
-    val id: String = "",
-    @JsonNames("text", "lesson", "note") val text: String = "",
+    @SerialName("lesson_id") @JsonNames("id") val id: String = "",
+    val cue: String? = null,
+    val action: String? = null,
+    val outcome: String? = null,
+    @JsonNames("lesson", "note") val text: String = "",
     val kind: String = "",
     @SerialName("created_at") val createdAt: String? = null,
     val uses: Int? = null,
@@ -251,11 +290,17 @@ data class LessonRow(
 @Serializable
 data class LessonList(val kind: String = "", val lessons: List<LessonRow> = emptyList())
 
+/** Top-level `id` is the request's echo, so the row is only ever `lesson_id` here. */
 @Serializable
-data class LessonDeleted(val kind: String = "", @JsonNames("lesson_id", "id") val lessonId: String = "", val deleted: Boolean = false)
+data class LessonDeleted(
+    val kind: String = "",
+    @SerialName("lesson_id") val lessonId: String = "",
+    val deleted: Boolean = false,
+    @SerialName("package") val packageName: String? = null,
+)
 
 @Serializable
-data class LessonsCleared(val kind: String = "", val cleared: Int = 0)
+data class LessonsCleared(val kind: String = "", @SerialName("removed") @JsonNames("cleared") val cleared: Int = 0)
 
 @Serializable
 data class NoteSummary(@SerialName("package") val packageName: String = "", val seeded: Boolean = false, val learned: Int = 0)
@@ -263,14 +308,22 @@ data class NoteSummary(@SerialName("package") val packageName: String = "", val 
 @Serializable
 data class NoteList(val notes: List<NoteSummary> = emptyList())
 
-/** `seeded` is the shipped note text (read-only), `learned` what Otto added, `shown` what the model sees. */
+/** `seeded` is the shipped note text (read-only), `learned` what Otto added, `shown` the lines the
+ *  model sees (a list; one string from older drafts). */
 @Serializable
 data class NoteDetail(
     @SerialName("package") val packageName: String = "",
     val seeded: String? = null,
     val learned: List<LessonRow> = emptyList(),
-    val shown: String = "",
-)
+    @SerialName("shown") val shownRaw: JsonElement? = null,
+) {
+    val shown: List<String>
+        get() = when (val s = shownRaw) {
+            is JsonArray -> s.mapNotNull { (it as? JsonPrimitive)?.content }
+            is JsonPrimitive -> if (s is JsonNull || s.content.isBlank()) emptyList() else listOf(s.content)
+            else -> emptyList()
+        }
+}
 
 // -- files, turns -------------------------------------------------------------------------------------
 
@@ -278,6 +331,8 @@ data class NoteDetail(
 data class FileBlob(
     @SerialName("session_id") val sessionId: String = "",
     val name: String = "",
+    val path: String = "",
+    val format: String = "",
     /** base64 */
     val data: String = "",
     val size: Long? = null,
