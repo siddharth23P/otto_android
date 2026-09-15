@@ -203,8 +203,24 @@ class PolicyGuardReviewTest {
         try { PolicyGuard(rules).requireTappable(buyNow, commit = true); fail("expected a guard refusal") }
         catch (e: DeviceException) { assertTrue(e.handover); assertTrue(e.message!!.contains("buy-now-button")) }
         val page = Snapshot("s6", "in.amazon.mShop.android.shopping", "Amazon", 1440, 3088, false, false,
-            listOf(UiNode(1, "Search Amazon", "", "edit-field", 0, 100, 1440, 200, true, true, false, false, true, null), buyNow))
+            listOf(UiNode(1, "Quantity", "", "edit-field", 0, 100, 1440, 200, true, true, false, false, true, null), buyNow))  // a non-search field: Enter would submit the form
         try { PolicyGuard(rules).requireSubmit(page); fail("expected a refusal") } catch (e: DeviceException) { assertTrue(e.handover) }
+    }
+
+    @Test fun enterInAFocusedSearchBoxRunsTheSearchOnAPageWithBuyOffers() {
+        val search = UiNode(1, "Search or ask a question", "", "edit-field", 330, 197, 1395, 273, true, true, false, false, true, null, viewId = "rs_search_src_text")
+        val offer = UiNode(2, "₹71,599 M.R.P: ₹1,09,999 (35% off) Buy for ₹71,549 with HDFC Bank credit card", "", "view", 0, 1000, 1440, 1100, true, false, false, false, false, null)
+        val results = Snapshot("s1", "in.amazon.mShop.android.shopping", "Amazon", 1440, 3088, true, false, listOf(search, offer))
+        val g = PolicyGuard(rules)
+        g.requireSubmit(results)
+        assertTrue(!g.handedOver)
+        for (other in listOf(search.copy(text = "Quantity", viewId = "qty"), search.copy(focused = false), search.copy(password = true))) {
+            try { PolicyGuard(rules).requireSubmit(results.copy(nodes = listOf(other, offer))); fail("expected a refusal for $other") }
+            catch (e: DeviceException) { assertTrue(e.handover) }
+        }
+        val checkout = results.copy(nodes = listOf(search, UiNode(3, "Order total ₹71,599", "", "text", 0, 1200, 1440, 1260, false, false, false, false, false, null)))
+        try { PolicyGuard(rules).requireSubmit(checkout); fail("expected a refusal") } catch (e: DeviceException) { assertTrue(e.handover) }
+        assertTrue(guard.searchFocused(results.copy(nodes = listOf(search.copy(text = "", viewId = "com.app:id/searchQuery")))))
     }
 
     @Test fun theElementUnderAPoint() {
