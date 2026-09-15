@@ -1,0 +1,97 @@
+# The nightlies are best-effort and GitHub says so: it defers the schedule
+# event under load -- ours have started five hours late -- drops it when the
+# queue is deep enough, and disables schedules outright after 60 days of
+# repository inactivity. Nothing in a cron expression changes that.
+#
+# So this does not watch the clock. It watches for a nightly that has not
+# succeeded in a day and a half, which is the failure worth knowing about: a
+# late run still ran, a dropped one leaves the wheels unbuilt and the app
+# untested on a device with nothing to say so.
+name: nightly-watch
+
+on:
+  schedule:
+    - cron: "13 7 * * *"
+  workflow_dispatch:
+  # Any merge re-checks, so the watch does not depend only on the same
+  # schedule mechanism it exists to distrust.
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  fresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every nightly has succeeded recently
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import json, os, sys, time, urllib.error, urllib.request
+          from datetime import datetime, timezone
+
+          REPO = os.environ["GITHUB_REPOSITORY"]
+          TOKEN = os.environ.get("GH_TOKEN", "")
+          # One nightly period, plus the worst drift seen, plus room. Tune with
+          # the env var rather than editing, so a slow week is not a code change.
+          STALE_AFTER = int(os.environ.get("STALE_AFTER_HOURS", "36")) * 3600
+          NIGHTLIES = ["wheels.yml", "compat.yml", "emulator.yml"]
+
+
+          def latest_success(workflow):
+              """The newest successful run, or None if there has never been one."""
+              url = (
+                  f"https://api.github.com/repos/{REPO}/actions/workflows/"
+                  f"{workflow}/runs?status=success&per_page=1"
+              )
+              problem = None
+              for attempt in range(3):
+                  request = urllib.request.Request(
+                      url, headers={"Accept": "application/vnd.github+json"}
+                  )
+                  if TOKEN:
+                      request.add_header("Authorization", f"Bearer {TOKEN}")
+                  try:
+                      with urllib.request.urlopen(request, timeout=30) as response:
+                          runs = json.load(response)["workflow_runs"]
+                          return runs[0] if runs else None
+                  except (urllib.error.URLError, TimeoutError, ValueError, KeyError) as error:
+                      problem = error
+                  if attempt < 2:
+                      time.sleep(2**attempt)
+              # A workflow that has been renamed or removed answers 404 here, and
+              # that is a nightly that has stopped existing, not a flake.
+              print(f"::error::could not read runs of {workflow}: {problem!r}", file=sys.stderr)
+              raise SystemExit(1)
+
+
+          now = datetime.now(timezone.utc)
+          stale = []
+          for workflow in NIGHTLIES:
+              run = latest_success(workflow)
+              if run is None:
+                  print(f"{workflow:14} no successful run, ever")
+                  stale.append(workflow)
+                  continue
+              when = datetime.strptime(run["created_at"], "%Y-%m-%dT%H:%M:%SZ").replace(
+                  tzinfo=timezone.utc
+              )
+              hours = (now - when).total_seconds() / 3600
+              verdict = "STALE" if hours * 3600 > STALE_AFTER else "ok"
+              print(f"{workflow:14} last success {hours:5.1f}h ago via {run['event']:16} {verdict}")
+              if hours * 3600 > STALE_AFTER:
+                  stale.append(workflow)
+
+          if stale:
+              print(
+                  f"::error::no successful run in {STALE_AFTER // 3600}h:"
+                  f" {', '.join(stale)}. The schedule may have been dropped or disabled.",
+                  file=sys.stderr,
+              )
+              raise SystemExit(1)
+          print("every nightly has run recently")
+          PY
