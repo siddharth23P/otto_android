@@ -40,7 +40,7 @@ class PolicyGuard(val rules: GuardRules) {
         val folded = java.text.Normalizer.normalize(text, java.text.Normalizer.Form.NFKC)
         val lowered = folded.replace(INVISIBLE, "").lowercase()
         val latin = buildString(lowered.length) { for (ch in lowered) append(CONFUSABLES[ch] ?: ch) }
-        return latin.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }.joinToString(" ")
+        return latin.trim().split(WHITESPACE).filter { it.isNotEmpty() }.joinToString(" ")
     }
 
     /** An element's resource id as words: the package prefix dropped, camelCase and -_./: split, then
@@ -77,7 +77,11 @@ class PolicyGuard(val rules: GuardRules) {
         return "this looks like a payment or sign-in screen ('${matches.first()}' with ${reasons.joinToString(", ")}) -- the person takes over here"
     }
 
-    private fun whole(word: String, text: String) = Regex("(^|\\W)" + Regex.escape(word) + "($|\\W)").containsMatchIn(text)
+    /** A word's whole-word pattern, compiled once: the words come from the rules, so this stays small. */
+    private val wholeWords = java.util.concurrent.ConcurrentHashMap<String, Regex>()
+
+    private fun whole(word: String, text: String) =
+        wholeWords.getOrPut(word) { Regex("(^|\\W)" + Regex.escape(word) + "($|\\W)") }.containsMatchIn(text)
 
     /** The first screen string that says this is a checkout (a total, "payment", a card field), or "". */
     fun checkoutContext(texts: Iterable<String>): String =
@@ -167,6 +171,7 @@ class PolicyGuard(val rules: GuardRules) {
 
     companion object {
         val CAMEL = Regex("([a-z0-9])([A-Z])")
+        val WHITESPACE = Regex("\\s+")
         val ID_SEPARATORS = Regex("[-_./:#]+")
         val INVISIBLE = Regex("[\\u200B-\\u200F\\u2060-\\u2064\\u00AD\\uFEFF\\u202A-\\u202E\\u2066-\\u2069]")
 

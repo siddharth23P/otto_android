@@ -8,6 +8,10 @@ data class InstalledApp(val label: String, val packageName: String)
 
 /** Installed apps with a launcher icon (what <queries> allows), and launching one. */
 class AppCatalog(private val context: Context) {
+    /** Labels found, by package: every snapshot asks for the one in front. A miss is never kept, so an
+     *  app installed a moment later is looked up again. */
+    private val labels = java.util.concurrent.ConcurrentHashMap<String, String>()
+
     fun list(): List<InstalledApp> {
         val pm = context.packageManager
         val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
@@ -17,12 +21,15 @@ class AppCatalog(private val context: Context) {
             .sortedBy { it.label.lowercase() }
     }
 
-    fun label(packageName: String): String = try {
+    fun label(packageName: String): String = labels[packageName] ?: try {
         val pm = context.packageManager
-        pm.getApplicationLabel(pm.getApplicationInfo(packageName, 0)).toString()
+        pm.getApplicationLabel(pm.getApplicationInfo(packageName, 0)).toString().also { labels[packageName] = it }
     } catch (e: PackageManager.NameNotFoundException) {
         packageName
     }
+
+    /** After an install or update, when a package's label may have changed. */
+    fun forgetLabels() = labels.clear()
 
     fun launch(packageName: String): Boolean {
         val intent = context.packageManager.getLaunchIntentForPackage(packageName) ?: return false

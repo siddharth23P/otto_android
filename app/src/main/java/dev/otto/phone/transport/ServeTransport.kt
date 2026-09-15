@@ -8,7 +8,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
@@ -49,8 +48,7 @@ class ServeTransport(private val url: String, private val token: String) : Agent
                 "device_call" -> scope.launch {
                     val id = frame["id"]?.jsonPrimitive?.content?.toIntOrNull() ?: return@launch
                     val method = frame["method"]?.jsonPrimitive?.content ?: ""
-                    val envelope = Json.parseToJsonElement(PyBridge.call(method, ServeProtocol.deviceCallArgs(frame))).jsonObject
-                    webSocket.send(ServeProtocol.deviceResult(id, envelope))
+                    webSocket.send(ServeProtocol.deviceResult(id, PyBridge.callJson(method, ServeProtocol.deviceCallArgs(frame))))
                 }
                 "sessions_result" -> waiting.remove("sessions:" + (frame["op"]?.jsonPrimitive?.content ?: ""))?.complete(frame)
                 "error" -> {
