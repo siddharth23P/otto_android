@@ -16,6 +16,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.otto.phone.state.Route
 import dev.otto.phone.ui.chat.ChatScreen
 import dev.otto.phone.ui.document.DocumentScreen
+import dev.otto.phone.ui.memory.MemoryScreen
+import dev.otto.phone.ui.memory.NoteScreen
 import dev.otto.phone.ui.settings.DoctorScreen
 import dev.otto.phone.ui.settings.KeysScreen
 import dev.otto.phone.ui.settings.RoutingScreen
@@ -70,7 +72,8 @@ fun OttoRoot(m: Models) {
                 Route.Usage -> UsageScreen(m)
                 Route.Routing -> RoutingScreen(m)
                 is Route.Document -> DocumentScreen(top.document, onBack = { m.app.back() })
-                Route.Memory, is Route.Note -> ChatScreen(m)
+                Route.Memory -> MemoryScreen(m)
+                is Route.Note -> NoteScreen(m, top.packageName)
             }
         }
     }
