@@ -330,20 +330,15 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
         return grid.rowCount in 0..1 && grid.columnCount > 1
     }
 
-    /** What a scroll changes: the labels and positions of what lies in the region (or on screen). */
-    private fun signature(snapshot: Snapshot, region: UiNode?): Int =
-        snapshot.nodes.filter { n -> region == null || (n.top < region.bottom && n.bottom > region.top && n.left < region.right && n.right > region.left) }
-            .joinToString("\n") { "${it.label}|${it.viewId}@${it.left},${it.top}" }.hashCode()
-
-    /** Whether the screen shows a change within about a second: a WebView reports moved nodes late,
-     *  and a screen read at once looks as if nothing happened. */
-    private fun changed(was: Int, region: UiNode?): Boolean {
-        repeat(8) {
-            Thread.sleep(150)
-            val now = runCatching { snapshotNow() }.getOrNull() ?: return@repeat
-            if (signature(now, region) != was) return true
-        }
-        return false
+    /** Whether a scroll taken between `since` and `actedAt` moved what lies in `region`, with the last walk.
+     *  One walk once the screen settles; a second only when the screen was still saying it changed as it
+     *  was read -- a WebView reports moved nodes late -- after one more quiet window. */
+    private fun moved(was: Int, region: UiNode?, since: Long, actedAt: Long): Pair<Boolean, Snapshot?> {
+        val first = settledSnapshot(since, actedAt, SettlePolicy.SCROLL) ?: return false to null
+        if (ScreenDiff.signature(first, region) != was) return true to first
+        if (log.lastAnyAt < maxOf(since, first.takenAt - SettlePolicy.SCROLL.quietMs)) return false to first
+        val again = settledSnapshot(first.takenAt, first.takenAt, LATE_SCROLL) ?: return false to first
+        return (ScreenDiff.signature(again, region) != was) to again
     }
 
     override fun scroll(direction: String, node: Int): JsonObject = serial {
@@ -363,21 +358,23 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
                 .filter { (_, info) -> scrollsSideways(info) == sideways }
                 .maxByOrNull { (ui, _) -> (ui.right - ui.left).toLong() * (ui.bottom - ui.top) }
         val region = target?.first
-        val was = signature(before, region)
+        val was = ScreenDiff.signature(before, region)
         val forward = direction == "down" || direction == "right"
         val action = if (forward) AccessibilityNodeInfo.ACTION_SCROLL_FORWARD else AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
         // A view can accept the scroll action and not move (a WebView often does): what counts is the
         // screen changing, and when it does not, the finger does it instead.
-        val since = now()
-        var moved = target?.second?.performAction(action) == true && changed(was, region)
-        if (!moved) {
+        var since = now()
+        var (shifted, last) = if (target?.second?.performAction(action) == true) moved(was, region, since, now()) else false to null
+        if (!shifted) {
             val m = resources.displayMetrics
             val gesture = region?.let { gestureWithin(finger, it, m.widthPixels, m.heightPixels) }
                 ?: swipeGesture(finger, m.widthPixels, m.heightPixels)
+            since = now()
             if (!Gestures.dispatch(this, gesture)) throw DeviceException("could not scroll", "failed")
-            moved = changed(was, region)
+            moved(was, region, since, now()).let { (byFinger, walk) -> shifted = byFinger; last = walk }
         }
-        after(if (moved) "scrolled $direction" else "scrolled $direction, but nothing on screen moved -- the end of the list, or a view that does not scroll that way", since, now(), SettlePolicy.SCROLL)
+        after(if (shifted) "scrolled $direction" else "scrolled $direction, but nothing on screen moved -- the end of the list, or a view that does not scroll that way",
+            since, now(), SettlePolicy.SCROLL, reuse = last)
     }
 
     // -- looking -------------------------------------------------------------
@@ -484,6 +481,8 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
 
     companion object {
         @Volatile var instance: OttoAccessibilityService? = null
+        /** The second look after a scroll whose screen was still changing: no minimum, 600 ms at most. */
+        private val LATE_SCROLL = SettlePolicy.SCROLL.copy(minMs = 0, capMs = 600)
     }
 }
 
