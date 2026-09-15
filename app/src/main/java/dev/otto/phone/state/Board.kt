@@ -1,8 +1,10 @@
 package dev.otto.phone.state
 
 /** agent/cli/art.py's pure parts: board-line decoration, mode inference, the budget meter, the
- *  per-turn sparkline and the phase colouring. Regexes carry `(?U)` so `\w`, `\b` and `\s` are
- *  Unicode-aware, as they are in a Python `str` pattern. */
+ *  per-turn sparkline and the phase colouring. A Python `str` pattern's `\w`, `\b` and `\s` are
+ *  Unicode-aware; here they are spelled out as classes (`WORD`, `SPACE`) rather than with `(?U)`,
+ *  which desktop Java accepts and Android's ICU regex engine rejects -- it crashed the app on
+ *  launch on a Galaxy S23 (2026-09-16) while every JVM test passed. */
 object Board {
     val MODE_GLYPHS: Map<String, String> = mapOf("solve" to "◆", "plan" to "☰", "summarize" to "≣", "find" to "⌕")
 
@@ -17,11 +19,15 @@ object Board {
     const val METER_EMPTY = "▱"
     const val SPARK_GLYPHS = "▁▂▃▄▅▆▇█"
 
-    private val MODE_SWITCH = Regex("""(?U)^(?:escalated|switched|de-escalated) to (\w+) mode""")
-    private val MODE_PREFIX = Regex("""(?U)^(solve|plan|summarize|find): """)
-    private val ARROW = Regex("""(?U)\s+->\s+""")
-    private val OUTCOME_OK = Regex("""(?U)\b(ok|approved|passed|done)\b$""")
-    private val OUTCOME_BAD = Regex("""(?U)\b(failed|error|rejected|refused|timed out)\b$""")
+    /** Python's Unicode `\w` and `\s`, written so both JVM and ICU read them the same way. */
+    private const val WORD = """[\p{L}\p{N}_]"""
+    private const val SPACE = """[\s\p{Z}]"""
+    private val MODE_SWITCH = Regex("""^(?:escalated|switched|de-escalated) to ($WORD+) mode""")
+    private val MODE_PREFIX = Regex("""^(solve|plan|summarize|find): """)
+    private val ARROW = Regex("""$SPACE+->$SPACE+""")
+    // `\b(word)\b$`: a word boundary before the word; the one before `$` always holds after a letter.
+    private val OUTCOME_OK = Regex("""(?<!$WORD)(ok|approved|passed|done)$""")
+    private val OUTCOME_BAD = Regex("""(?<!$WORD)(failed|error|rejected|refused|timed out)$""")
 
     enum class Outcome { OK, BAD }
 
