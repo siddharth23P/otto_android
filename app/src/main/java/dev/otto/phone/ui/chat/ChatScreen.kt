@@ -192,7 +192,7 @@ private fun ChatBanners(m: Models, app: dev.otto.phone.ui.AppState) {
     Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
         when (val link = app.link) {
             is Link.Failed -> Banner(link.message, edge = c.bad, action = "Retry", onAction = { m.app.connect() }, secondAction = "Settings", onSecondAction = { m.app.push(Route.Settings) })
-            Link.NeedsKey -> Banner("otto needs a key before it can answer.", action = "Keys", onAction = { m.app.push(Route.Settings) })
+            Link.NeedsKey -> Banner("otto needs a key before it can answer.", action = "Keys", onAction = { m.app.push(Route.Keys) })
             Link.Connecting -> Unit
             Link.Ready -> if (!newerDismissed && !app.capabilities.supports(Op.SESSIONS_USAGE)) {
                 Banner("$NEEDS_NEWER_OTTO — sessions, settings and memory need otto serve 0.3 or later.", edge = c.faint, action = "OK", onAction = { newerDismissed = true })
