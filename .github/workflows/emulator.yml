@@ -21,6 +21,12 @@ jobs:
     # is how this job came to skip everything that was not a dispatch.
     if: github.event_name != 'pull_request' || github.event.label.name == 'otto-bump'
     runs-on: ubuntu-latest
+    strategy:
+      # One level failing is a fact about that level, so let the other finish
+      # and say whether it is the app or the platform that moved.
+      fail-fast: false
+      matrix:
+        api-level: [30, 35]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v4
@@ -37,9 +43,16 @@ jobs:
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+      # The two levels the app declares: minSdk 30, the oldest platform it
+      # claims to run on, and targetSdk 35, which decides which of the
+      # platform's behaviour changes apply to us. An accessibility service
+      # is reached by both ends. compileSdk 37 is not booted -- it says what
+      # the app may call, not how it runs -- and android-37 publishes no
+      # "default" system image, only google_apis, so a bump that far has to
+      # name a target: here as well.
       - uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 34
+          api-level: ${{ matrix.api-level }}
           arch: x86_64
           profile: pixel_6
           script: |
