@@ -102,6 +102,7 @@ fun SettingsScreen(m: Models) {
                 LinkRow("Doctor", { m.app.push(Route.Doctor) }, Modifier.testTag("settings_doctor"))
                 LinkRow("Usage", { m.app.push(Route.Usage) }, Modifier.testTag("settings_usage"))
                 LinkRow("Routing", { m.app.push(Route.Routing) }, Modifier.testTag("settings_routing"))
+                LinkRow("Memory", { m.app.push(Route.Memory) }, Modifier.testTag("settings_memory"))
             }
             Panel("guard log") {
                 if (app.guardLog.isEmpty()) Text("Nothing refused yet.", style = OttoTheme.type.ui.copy(fontSize = 14.sp, color = c.dim))
