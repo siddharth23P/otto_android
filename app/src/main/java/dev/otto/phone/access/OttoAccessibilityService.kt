@@ -435,20 +435,30 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
     override fun launch(packageName: String): JsonObject = serial {
         val why = guard.packageVerdict(packageName, catalog.label(packageName))
         if (why.isNotEmpty()) throw DeviceException(why, "guard", handover = false)
+        val since = now()
         if (!catalog.launch(packageName)) throw DeviceException("no launchable app called $packageName", "failed")
-        Thread.sleep(1500)
+        // Read once the app is in front and has drawn; one already in front simply settles.
+        val after = settledSnapshot(since, now(), SettlePolicy.LAUNCH) { rootInActiveWindow?.packageName?.toString() == packageName }
         buildJsonObject {
             put("package", packageName); put("label", catalog.label(packageName))
-            shown(runCatching { snapshotNow() }.getOrNull())?.let { put("after", it) }
+            shown(after)?.let { put("after", it) }
         }
     }
 
     override fun openSettings(page: String, packageName: String): JsonObject = serial {
+        val intent = SettingsPages.intentFor(page, packageName) ?: throw DeviceException("no Settings page called $page", "unsupported")
+        // The page is in front when another app's window arrived, or when the app that answers the intent
+        // is in front (it may have been already, on another page). Null when package visibility hides it.
+        val front = rootInActiveWindow?.packageName?.toString() ?: ""
+        @Suppress("DEPRECATION") val answers = packageManager.resolveActivity(intent, 0)?.activityInfo?.packageName
+        val since = now()
         if (!SettingsPages.open(this, page, packageName)) throw DeviceException("no Settings page called $page", "unsupported")
-        Thread.sleep(1200)
+        val after = settledSnapshot(since, now(), SettlePolicy.SETTINGS) {
+            log.stateSeenOtherThan(front, since) || (answers != null && rootInActiveWindow?.packageName?.toString() == answers)
+        }
         buildJsonObject {
             put("page", page)
-            shown(runCatching { snapshotNow() }.getOrNull())?.let { put("after", it) }
+            shown(after)?.let { put("after", it) }
         }
     }
 
@@ -456,26 +466,39 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
         guard.requireActionable(null)
         val why = guard.packageVerdict(packageName, query)
         if (why.isNotEmpty()) throw DeviceException("$why -- not installed", "guard", handover = false)
+        var since = now()
         if (!PlayStore.open(this, packageName, query)) throw DeviceException("the Play Store could not be opened", "unsupported")
+        var actedAt = now()
         var state = "listing opened"
-        val deadline = System.currentTimeMillis() + 20_000
-        while (System.currentTimeMillis() < deadline) {
-            Thread.sleep(800)
+        val deadline = actedAt + 20_000
+        // The listing loads in steps: look each time it settles, and walk only when it said it changed.
+        var last: Snapshot? = null
+        var eventsAtWalk = EventLog.NEVER
+        while (now() < deadline) {
+            settler.await(since, actedAt, SettlePolicy.ACTION)
+            since = now(); actedAt = since
+            val events = log.lastAnyAt
+            if (last != null && events == eventsAtWalk) continue
             val snapshot = runCatching { snapshotNow() }.getOrNull() ?: continue
+            last = snapshot; eventsAtWalk = events
             if (snapshot.packageName != PlayStore.PACKAGE) continue
             val priced = snapshot.nodes.any { PlayStore.PRICE.containsMatchIn(it.label) && it.clickable }
             if (priced) throw DeviceException("this app costs money -- the person decides that", "guard", handover = true)
             val installButton = snapshot.nodes.firstOrNull { it.clickable && it.label.equals("Install", ignoreCase = true) }
             if (installButton != null) {
                 val info = lastNodes[installButton.index]
-                if (info?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true) { state = "installing"; break }
+                val clickAt = now()
+                if (info?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true) { state = "installing"; since = clickAt; actedAt = now(); break }
             }
             if (snapshot.nodes.any { it.clickable && (it.label.equals("Open", ignoreCase = true) || it.label.equals("Update", ignoreCase = true)) }) { state = "already installed"; break }
         }
         catalog.forgetLabels()
+        // The last walk still answers when nothing has changed since it; a tap on Install always has.
+        val after = if (state != "installing" && last != null && log.lastAnyAt == eventsAtWalk) last
+            else settledSnapshot(since, actedAt, SettlePolicy.ACTION)
         buildJsonObject {
             put("state", state)
-            shown(runCatching { snapshotNow() }.getOrNull())?.let { put("after", it) }
+            shown(after)?.let { put("after", it) }
         }
     }
 
