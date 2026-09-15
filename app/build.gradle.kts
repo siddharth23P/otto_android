@@ -3,6 +3,7 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.chaquopy)
 }
 
@@ -81,6 +82,7 @@ dependencies {
     implementation(libs.compose.material3)
     implementation(libs.okhttp)
     implementation(libs.kotlinx.serialization.json)
+    implementation(libs.markdown.renderer.m3)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.datastore.preferences)
     testImplementation(libs.junit)
