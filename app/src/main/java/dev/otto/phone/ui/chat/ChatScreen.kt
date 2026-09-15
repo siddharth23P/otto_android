@@ -66,6 +66,7 @@ import dev.otto.phone.ui.components.IconAction
 import dev.otto.phone.ui.components.OttoIcons
 import dev.otto.phone.ui.components.OttoToastHost
 import dev.otto.phone.ui.components.Wordmark
+import dev.otto.phone.ui.document.DocumentRow
 import dev.otto.phone.ui.theme.OttoShapes
 import dev.otto.phone.ui.theme.OttoTheme
 import dev.otto.phone.ui.theme.PulseDot
@@ -239,7 +240,9 @@ private fun Transcript(m: Models, modifier: Modifier, now: Long, actions: Messag
                 is ChatText.Row.Day -> DatePill(row.label)
                 is ChatText.Row.Message -> when (val b = row.block) {
                     is ChatBlock.User -> UserMessage(b, actions)
-                    is ChatBlock.Otto -> OttoMessage(b, now, actions)
+                    is ChatBlock.Otto -> OttoMessage(b, now, actions) {
+                        b.turn?.document?.let { doc -> DocumentRow(doc, onOpen = { m.app.push(Route.Document(doc, chat.sessionId)) }) }
+                    }
                     is ChatBlock.System -> SystemMessage(b, now, actions)
                     is ChatBlock.Earlier -> EarlierMessage(b)
                 }
