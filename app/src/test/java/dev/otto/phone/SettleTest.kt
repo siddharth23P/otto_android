@@ -108,4 +108,22 @@ class SettleTest {
         assertFalse(log.stateSeenOtherThan(EventLog.SYSTEM_UI, 100))
         assertFalse(log.stateSeenOtherThan("com.example.shop", 121))
     }
+
+    @Test fun aPageIsCountedByItsOwnAppsWindowChangesOnly() {
+        val log = EventLog()
+        assertEquals(EventLog.Page(0, ""), log.pageOf("com.shop"))
+        log.record(Kind.STATE, "com.shop", 10, "com.shop.MainActivity")
+        log.record(Kind.CONTENT, "com.shop", 20)
+        log.record(Kind.SCROLL, "com.shop", 30)
+        log.record(Kind.WINDOWS, "", 40)
+        log.record(Kind.STATE, "com.samsung.android.honeyboard", 50, "android.inputmethodservice.SoftInputWindow")
+        log.record(Kind.STATE, EventLog.SYSTEM_UI, 60, "android.widget.FrameLayout")
+        assertEquals(EventLog.Page(1, "com.shop.MainActivity"), log.pageOf("com.shop"))
+        log.record(Kind.STATE, "com.shop", 70, "org.npci.upi.security.pinactivitycomponent.GetCredential")
+        assertEquals(EventLog.Page(2, "org.npci.upi.security.pinactivitycomponent.GetCredential"), log.pageOf("com.shop"))
+        log.record(Kind.STATE, "com.shop", 80)  // a change that names no class keeps the last one
+        assertEquals(EventLog.Page(3, "org.npci.upi.security.pinactivitycomponent.GetCredential"), log.pageOf("com.shop"))
+        log.record(Kind.STATE, "com.shop", 90, "x".repeat(500))
+        assertEquals(EventLog.MAX_ACTIVITY, log.pageOf("com.shop").activity.length)
+    }
 }
