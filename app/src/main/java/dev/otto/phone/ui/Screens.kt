@@ -1,7 +1,6 @@
 package dev.otto.phone.ui
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -11,7 +10,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -39,25 +37,12 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.otto.phone.state.ChatBlock
+import dev.otto.phone.state.Route
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 
-/** Every screen is laid out inside the safe area, keyboard included. The window draws edge to edge
- *  (Android 15+ enforces it for targetSdk 35), so adjustResize no longer shrinks it for the keyboard:
- *  the insets are the only thing that keeps a text field above the keyboard and off the system bars. */
-@Composable
-fun OttoUi(vm: ChatViewModel) {
-    val state by vm.state.collectAsStateWithLifecycle()
-    Box(Modifier.fillMaxSize().safeDrawingPadding()) {
-        when (state.screen) {
-            Screen.DISCLOSURE -> DisclosureScreen(onAccept = vm::acceptDisclosure)
-            Screen.SETUP -> SetupScreen(state, vm)
-            Screen.CHAT -> ChatScreen(state, vm)
-            Screen.SESSIONS -> SessionsScreen(state, vm)
-            Screen.SETTINGS -> SettingsScreen(state, vm)
-        }
-    }
-}
+// The screens as they were, drawn from the new ViewModels until each is replaced.
 
 @Composable
 fun DisclosureScreen(onAccept: () -> Unit) {
@@ -74,56 +59,12 @@ fun DisclosureScreen(onAccept: () -> Unit) {
 }
 
 @Composable
-fun SetupScreen(state: UiState, vm: ChatViewModel) {
-    Column(Modifier.fillMaxSize().padding(24.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Set up Otto", style = MaterialTheme.typography.headlineSmall)
-        Text(state.versionLine, style = MaterialTheme.typography.bodySmall)
-        if (state.error.isNotBlank()) Text(state.error, color = MaterialTheme.colorScheme.error)
-        Card { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("1. The hands", style = MaterialTheme.typography.titleMedium)
-            Text(if (state.serviceEnabled) "Otto's accessibility service is on." else "Turn on \"Otto phone helper\" under Accessibility. On Android 13+, a sideloaded app first needs App info → ⋮ → Allow restricted settings.")
-            OutlinedButton(onClick = vm::openAccessibilitySettings) { Text("Open accessibility settings") }
-        } }
-        Card { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("2. The brain", style = MaterialTheme.typography.titleMedium)
-            if (state.transportName == "embedded" && state.runtimeAvailable) {
-                Text("Otto runs on this phone. INCEPTION_API_KEY is required; a GEMINI_API_KEY adds screenshots and better memory.")
-                for (name in listOf("INCEPTION_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY")) {
-                    KeyRow(name, state.keys[name] ?: "not set") { vm.setKey(name, it) }
-                }
-            } else {
-                Text("Pair with otto serve: on a computer run `uv run otto serve --host 0.0.0.0` and paste the ws://…#token line it prints.")
-                var pairing by remember { mutableStateOf(state.serveUrl) }
-                OutlinedTextField(pairing, { pairing = it }, label = { Text("ws://host:8765/#token") }, modifier = Modifier.fillMaxWidth())
-                Button(onClick = { vm.pairServe(pairing) }) { Text("Pair") }
-            }
-        } }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { vm.show(Screen.CHAT) }, enabled = state.ready) { Text("Start chatting") }
-            TextButton(onClick = { vm.show(Screen.SETTINGS) }) { Text("Settings") }
-        }
-    }
-}
-
-@Composable
-private fun KeyRow(name: String, shown: String, onSave: (String) -> Unit) {
-    var value by remember { mutableStateOf("") }
-    Column {
-        Text("$name · $shown", style = MaterialTheme.typography.bodySmall)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(value, { value = it }, modifier = Modifier.weight(1f), singleLine = true,
-                visualTransformation = PasswordVisualTransformation(), label = { Text("paste key") })
-            Button(onClick = { onSave(value); value = "" }) { Text("Save") }
-        }
-    }
-}
-
-@Composable
-fun ChatScreen(state: UiState, vm: ChatViewModel) {
+fun ChatScreen(m: Models) {
+    val app by m.app.state.collectAsStateWithLifecycle()
+    val state by m.chat.state.collectAsStateWithLifecycle()
     var input by remember { mutableStateOf("") }
     val list = rememberLazyListState()
-    val count = state.messages.size + if (state.board.isNotEmpty()) 1 else 0
-    // The latest message stays in sight: when one arrives, and when the keyboard opens and the list shrinks.
+    val count = state.blocks.size + if (state.turn != null) 1 else 0
     LaunchedEffect(count) { if (count > 0) list.scrollToItem(count - 1) }
     val ime = WindowInsets.ime
     val density = LocalDensity.current
@@ -133,31 +74,41 @@ fun ChatScreen(state: UiState, vm: ChatViewModel) {
             if (last >= 0) list.scrollToItem(last)
         }
     }
-    // No content insets of its own: OttoUi already padded for the bars and the keyboard.
     Scaffold(contentWindowInsets = WindowInsets(0, 0, 0, 0), topBar = {
         Row(Modifier.fillMaxWidth().padding(8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(state.sessionTitle.ifBlank { "Otto" }, style = MaterialTheme.typography.titleMedium)
-            Row { TextButton(onClick = { vm.show(Screen.SESSIONS) }) { Text("Sessions") }; TextButton(onClick = { vm.show(Screen.SETTINGS) }) { Text("Settings") } }
+            Text(state.title.ifBlank { "Otto" }, style = MaterialTheme.typography.titleMedium)
+            Row { TextButton(onClick = { m.chat.newSession() }) { Text("New") }; TextButton(onClick = { m.app.push(Route.Settings) }) { Text("Settings") } }
         }
     }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = 12.dp)) {
-            if (!state.serviceEnabled) Text("The accessibility service is off; Otto can answer but not act.", color = MaterialTheme.colorScheme.error)
-            if (state.handedOver) Card { Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+            if (!app.serviceEnabled) Text("The accessibility service is off; Otto can answer but not act.", color = MaterialTheme.colorScheme.error)
+            if (app.handedOver) Card { Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("Otto stopped: this step is yours (a payment, a PIN or a protected screen).", Modifier.weight(1f))
-                TextButton(onClick = vm::resumeAfterHandover) { Text("Resume") }
+                TextButton(onClick = { m.app.resumeAfterHandover() }) { Text("Resume") }
             } }
-            if (state.error.isNotBlank()) Text(state.error, color = MaterialTheme.colorScheme.error)
+            when (val link = app.link) {
+                is Link.Failed -> Text(link.message, color = MaterialTheme.colorScheme.error)
+                Link.NeedsKey -> Text("otto needs a key before it can answer — add one in Settings.", color = MaterialTheme.colorScheme.error)
+                else -> Unit
+            }
             LazyColumn(Modifier.weight(1f), state = list, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(state.messages) { m -> Card { Column(Modifier.padding(12.dp)) { Text(m.role, style = MaterialTheme.typography.labelSmall); Text(m.text) } } }
-                if (state.board.isNotEmpty()) item { Card { Column(Modifier.padding(12.dp)) { state.board.takeLast(6).forEach { Text(it, style = MaterialTheme.typography.bodySmall) } } } }
+                items(state.blocks) { b ->
+                    when (b) {
+                        is ChatBlock.User -> Text("you: ${b.text}")
+                        is ChatBlock.Otto -> Text(b.text)
+                        is ChatBlock.System -> Text(b.text, color = MaterialTheme.colorScheme.error)
+                        is ChatBlock.Earlier -> Text(b.text, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                state.turn?.let { t -> item { Column { t.lines.takeLast(6).forEach { Text(it, style = MaterialTheme.typography.bodySmall) }; t.streaming?.let { Text(it) } } } }
             }
-            if (state.running) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(state.status.ifBlank { "working" }, style = MaterialTheme.typography.bodySmall)
-                TextButton(onClick = vm::stop) { Text("Stop") }
-            }
+            state.turn?.let { t -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("${t.phase} ${t.tool}".trim(), style = MaterialTheme.typography.bodySmall)
+                TextButton(onClick = { m.chat.stop() }) { Text("Stop") }
+            } }
             Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(input, { input = it }, modifier = Modifier.weight(1f), label = { Text("Ask Otto") }, enabled = !state.running)
-                Button(onClick = { vm.send(input); input = "" }, enabled = !state.running && input.isNotBlank()) { Text("Send") }
+                Button(onClick = { if (m.chat.send(input)) input = "" }, enabled = !state.running && input.isNotBlank()) { Text("Send") }
             }
         }
     }
@@ -166,56 +117,60 @@ fun ChatScreen(state: UiState, vm: ChatViewModel) {
         AlertDialog(onDismissRequest = { }, title = { Text("Otto is asking") },
             text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(ask.question)
-                ask.choices.forEach { choice -> OutlinedButton(onClick = { vm.answer(choice) }, modifier = Modifier.fillMaxWidth()) { Text(choice) } }
+                ask.choices.forEach { choice -> OutlinedButton(onClick = { m.chat.answer(choice) }, modifier = Modifier.fillMaxWidth()) { Text(choice) } }
                 OutlinedTextField(free, { free = it }, label = { Text("or type an answer") }, modifier = Modifier.fillMaxWidth())
             } },
-            confirmButton = { Button(onClick = { if (free.isNotBlank()) vm.answer(free) }) { Text("Answer") } },
-            dismissButton = { TextButton(onClick = vm::stop) { Text("Stop") } })
+            confirmButton = { Button(onClick = { if (free.isNotBlank()) m.chat.answer(free) }) { Text("Answer") } },
+            dismissButton = { TextButton(onClick = { m.chat.stop() }) { Text("Stop") } })
     }
 }
 
 @Composable
-fun SessionsScreen(state: UiState, vm: ChatViewModel) {
-    Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { vm.openSession(null) }) { Text("New session") }
-            TextButton(onClick = { vm.show(Screen.CHAT) }) { Text("Back") }
-        }
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(state.sessions) { row -> Card { Row(Modifier.padding(12.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Column(Modifier.weight(1f)) { Text(row.title); Text("${row.turns} turns · ${row.age}", style = MaterialTheme.typography.bodySmall) }
-                TextButton(onClick = { vm.openSession(row.id) }) { Text("Resume") }
-                TextButton(onClick = { vm.deleteSession(row.id) }) { Text("Delete") }
-            } } }
-        }
-    }
-}
-
-@Composable
-fun SettingsScreen(state: UiState, vm: ChatViewModel) {
+fun SettingsScreen(m: Models) {
+    val app by m.app.state.collectAsStateWithLifecycle()
+    val sessions by m.sessions.state.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) { m.sessions.load() }
     Column(Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Settings", style = MaterialTheme.typography.headlineSmall)
-        Text(state.versionLine, style = MaterialTheme.typography.bodySmall)
+        Text("otto ${app.ottoVersion} · api ${app.apiVersion} · ${app.transportName}", style = MaterialTheme.typography.bodySmall)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("Otto may act on the phone", Modifier.weight(1f))
-            Switch(checked = state.allowedToAct, onCheckedChange = vm::setAllowedToAct)
+            Switch(checked = app.allowedToAct, onCheckedChange = { m.app.setAllowedToAct(it) })
         }
+        OutlinedButton(onClick = { m.app.openAccessibilitySettings() }) { Text("Open accessibility settings") }
         Card { Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Where Otto runs", style = MaterialTheme.typography.titleMedium)
-            Text(if (state.transportName == "embedded") "On this phone" else "otto serve at ${state.serveUrl}")
+            Text(if (app.transportName == "embedded") "On this phone" else "otto serve at ${app.serveUrl}")
             var pairing by remember { mutableStateOf("") }
             OutlinedTextField(pairing, { pairing = it }, label = { Text("ws://host:8765/#token") }, modifier = Modifier.fillMaxWidth())
+            app.pairingError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { vm.pairServe(pairing) }) { Text("Pair with otto serve") }
-                OutlinedButton(onClick = vm::useEmbedded) { Text("Use this phone") }
+                Button(onClick = { m.app.pairServe(pairing) }) { Text("Pair with otto serve") }
+                OutlinedButton(onClick = { m.app.useEmbedded() }) { Text("Use this phone") }
             }
+        } }
+        app.status?.maskedKeys?.forEach { (name, shown) ->
+            var value by remember(name) { mutableStateOf("") }
+            Text("$name · $shown", style = MaterialTheme.typography.bodySmall)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(value, { value = it }, modifier = Modifier.weight(1f), singleLine = true, visualTransformation = PasswordVisualTransformation())
+                Button(onClick = { m.setup.setKey(name, value) { m.app.refreshStatus() }; value = "" }) { Text("Save") }
+            }
+        }
+        Card { Column(Modifier.padding(12.dp)) {
+            Text("Sessions", style = MaterialTheme.typography.titleMedium)
+            sessions.rows.forEach { row -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("${row.title.ifBlank { "(untitled)" }} · ${row.turns}", Modifier.weight(1f))
+                TextButton(onClick = { m.chat.openSession(row.id); m.app.home() }) { Text("Resume") }
+                TextButton(onClick = { m.sessions.tapDelete(row.id) }) { Text(if (sessions.deleteArmed(row.id, System.currentTimeMillis())) "sure?" else "Delete") }
+            } }
         } }
         Card { Column(Modifier.padding(12.dp)) {
             Text("Guard log", style = MaterialTheme.typography.titleMedium)
-            if (state.guardLog.isEmpty()) Text("Nothing refused yet.", style = MaterialTheme.typography.bodySmall)
-            state.guardLog.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
+            if (app.guardLog.isEmpty()) Text("Nothing refused yet.", style = MaterialTheme.typography.bodySmall)
+            app.guardLog.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
         } }
         Spacer(Modifier.height(8.dp))
-        TextButton(onClick = { vm.show(Screen.CHAT) }) { Text("Back") }
+        TextButton(onClick = { m.app.back() }) { Text("Back") }
     }
 }
