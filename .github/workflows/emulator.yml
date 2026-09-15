@@ -37,9 +37,13 @@ jobs:
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+      # targetSdk, not compileSdk: the target is what decides which of the
+      # platform's behaviour changes apply to us, so it is the one level
+      # worth booting. A bump past 35 needs a target: chosen here too --
+      # android-37 publishes no "default" system image, only google_apis.
       - uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 34
+          api-level: 35
           arch: x86_64
           profile: pixel_6
           script: |
