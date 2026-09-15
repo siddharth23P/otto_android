@@ -22,12 +22,18 @@ import dev.otto.phone.device.PlayStore
 import dev.otto.phone.device.SettingsPages
 import dev.otto.phone.guard.GuardRules
 import dev.otto.phone.guard.PolicyGuard
+import dev.otto.phone.transport.EventBus
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import android.util.Base64
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -57,6 +63,9 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
     private val settler = Settler(SystemClock::uptimeMillis, Thread::sleep, log)
     lateinit var guard: PolicyGuard
     private lateinit var catalog: AppCatalog
+    /** Lives as long as the service: follows the agent's events for the status strip. */
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var overlay: StatusOverlay? = null
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -64,10 +73,16 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
         catalog = AppCatalog(this)
         instance = this
         PyBridge.ops = this
+        val strip = StatusOverlay(this) { rootInActiveWindow?.packageName?.toString() == packageName }
+        overlay = strip
+        scope.launch { EventBus.events.collect(strip::onEvent) }
     }
 
     override fun onDestroy() {
         if (instance === this) { instance = null; PyBridge.ops = DeviceOps.Unavailable }
+        scope.cancel()
+        overlay?.destroy()
+        overlay = null
         actions.shutdownNow()
         capture.shutdownNow()
         super.onDestroy()
@@ -82,7 +97,17 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
             AccessibilityEvent.TYPE_WINDOWS_CHANGED -> Kind.WINDOWS
             else -> return
         }
-        log.record(kind, event.packageName?.toString() ?: "", SystemClock.uptimeMillis())
+        val pkg = event.packageName?.toString() ?: ""
+        val at = SystemClock.uptimeMillis()
+        overlay?.let { strip ->
+            val stripMoved = strip.justToggled(at)
+            if (kind == Kind.STATE || kind == Kind.WINDOWS) strip.frontChanged()
+            // The strip is not the screen changing: while it shows, this package's events are its redraws
+            // (Otto's own app is not in front), and a windows change just after it came or went is its own.
+            if (strip.showing && pkg == packageName && kind != Kind.WINDOWS) return
+            if (kind == Kind.WINDOWS && stripMoved) return
+        }
+        log.record(kind, pkg, at)
     }
 
     override fun onInterrupt() = Unit
@@ -395,17 +420,23 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
         val latch = CountDownLatch(1)
         var bitmap: Bitmap? = null
         var error = 0
-        takeScreenshot(Display.DEFAULT_DISPLAY, capture, object : TakeScreenshotCallback {
-            override fun onSuccess(screenshot: ScreenshotResult) {
-                bitmap = screenshot.hardwareBuffer?.let { buf ->
-                    Bitmap.wrapHardwareBuffer(buf, screenshot.colorSpace)?.copy(Bitmap.Config.ARGB_8888, false)
-                        .also { buf.close() }
+        // Otto's status strip is not part of the app's screen: off for the capture, back once it is taken.
+        overlay?.hideForCapture()
+        try {
+            takeScreenshot(Display.DEFAULT_DISPLAY, capture, object : TakeScreenshotCallback {
+                override fun onSuccess(screenshot: ScreenshotResult) {
+                    bitmap = screenshot.hardwareBuffer?.let { buf ->
+                        Bitmap.wrapHardwareBuffer(buf, screenshot.colorSpace)?.copy(Bitmap.Config.ARGB_8888, false)
+                            .also { buf.close() }
+                    }
+                    latch.countDown()
                 }
-                latch.countDown()
-            }
-            override fun onFailure(errorCode: Int) { error = errorCode; latch.countDown() }
-        })
-        latch.await(5, TimeUnit.SECONDS)
+                override fun onFailure(errorCode: Int) { error = errorCode; latch.countDown() }
+            })
+            latch.await(5, TimeUnit.SECONDS)
+        } finally {
+            overlay?.restoreAfterCapture()
+        }
         val shot = bitmap ?: when (error) {
             ERROR_TAKE_SCREENSHOT_SECURE_WINDOW -> {
                 guard.handedOver = true
