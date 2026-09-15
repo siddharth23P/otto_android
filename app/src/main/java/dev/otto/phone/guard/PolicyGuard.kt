@@ -145,10 +145,22 @@ class PolicyGuard(val rules: GuardRules) {
 
     /** Enter has no label to judge, so the screen is judged instead: a checkout signal, or any pay
      *  button on it, is what Enter would submit. */
+    /** The field being typed in is a search box: focused, editable, not a password, and its label (an
+     *  empty field shows its hint) or resource id says "search". Enter there runs a search, whatever buy
+     *  offers surround it -- Amazon's results carry "Buy for ₹71,549 with HDFC" on nearly every listing,
+     *  and refusing Enter for that left phone runs unable to submit a typed query (2026-09-16). Same
+     *  judgement as otto's guard.search_focused. */
+    fun searchFocused(snapshot: Snapshot): Boolean = snapshot.nodes.any { n ->
+        n.editable && n.focused && !n.password &&
+            (SEARCH_WORD.containsMatchIn(normal(n.label)) || " search " in " ${idWords(n.viewId)} ")
+    }
+
     fun requireSubmit(snapshot: Snapshot) {
         val texts = snapshot.nodes.map { it.label }
         val seen = checkoutContext(texts)
         if (seen.isNotEmpty()) { handedOver = true; throw guard(note("this screen is a checkout ('$seen'); Enter would submit it -- the person does that"), handover = true) }
+        // A search box submits a search; a checkout above is still refused.
+        if (searchFocused(snapshot)) return
         texts.firstOrNull { targetVerdict(it) == Target.PAY }?.let {
             handedOver = true; throw guard(note("this screen has a payment step ('${it.take(60)}'); Enter would submit it -- the person does that"), handover = true)
         }
@@ -222,6 +234,7 @@ class PolicyGuard(val rules: GuardRules) {
         dev.otto.phone.bridge.DeviceException(message, "guard", handover)
 
     companion object {
+        val SEARCH_WORD = Regex("(^|\\W)search($|\\W)")
         val CAMEL = Regex("([a-z0-9])([A-Z])")
         val WHITESPACE = Regex("\\s+")
         val ID_SEPARATORS = Regex("[-_./:#]+")
