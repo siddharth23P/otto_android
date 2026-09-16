@@ -13,3 +13,7 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .venv/
+
+# The Android wheel set is published as a GitHub Release (wheels/wheels.json names it and
+# checks it); the binaries themselves never go in the repository.
+wheels/*.whl
