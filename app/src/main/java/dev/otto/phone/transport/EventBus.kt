@@ -1,5 +1,7 @@
 package dev.otto.phone.transport
 
+import dev.otto.phone.log.OttoLog
+
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.serialization.json.Json
@@ -15,5 +17,10 @@ object EventBus {
         runCatching { Json.parseToJsonElement(json).jsonObject }.getOrNull()?.let { flow.tryEmit(it) }
     }
 
-    fun emit(event: JsonObject) { flow.tryEmit(event) }
+    fun emit(event: JsonObject) {
+        val kind = (event["type"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "?"
+        if (kind == "error") OttoLog.w("OttoEvent", "error: ${event["code"]}: ${event["message"]}")
+        else OttoLog.d("OttoEvent", kind)
+        flow.tryEmit(event)
+    }
 }

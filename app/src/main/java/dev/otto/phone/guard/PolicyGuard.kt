@@ -56,8 +56,15 @@ class PolicyGuard(val rules: GuardRules) {
     @Volatile var handedOver: Boolean = false
     @Volatile private var memory: Memory? = null
     val log: MutableList<String> = java.util.Collections.synchronizedList(mutableListOf())
+    /** Told each refusal as it is made; the service sends them to the device log (OttoGuard). */
+    @Volatile var onNote: ((String) -> Unit)? = null
 
-    private fun note(why: String): String { log.add(why); if (log.size > 200) log.removeAt(0); return why }
+    private fun note(why: String): String {
+        log.add(why)
+        if (log.size > 200) log.removeAt(0)
+        onNote?.invoke(why)
+        return why
+    }
 
     fun normal(text: String): String = Words.normal(text)
     fun idWords(viewId: String): String = Words.idWords(viewId)

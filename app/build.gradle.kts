@@ -119,10 +119,15 @@ chaquopy {
     }
 }
 
-// Chaquopy's pip runs against the wheel set, so it waits for it.
+// Chaquopy's pip runs against the wheel set: it waits for it, and a changed set is a changed input.
+// Waiting alone was not enough -- a rebuilt otto wheel of the same version left the install task up
+// to date, and the APK kept the old otto (2026-09-16).
 if (embeddedPython) {
     tasks.matching { it.name.contains("PythonRequirements") || it.name.contains("PythonPackages") }
-        .configureEach { dependsOn(fetchWheels) }
+        .configureEach {
+            dependsOn(fetchWheels)
+            inputs.dir(wheelhouse)
+        }
 }
 
 dependencies {
