@@ -8,7 +8,7 @@ on:
     - cron: "41 4 * * *"
   workflow_dispatch:
   pull_request:
-    paths: ["app/src/main/python/**", "requirements-otto-git.txt"]
+    paths: ["app/src/main/python/**"]
 
 permissions:
   contents: read
@@ -28,7 +28,7 @@ jobs:
           from packaging.version import InvalidVersion, Version
 
           URL = "https://pypi.org/pypi/otto-cli-agent/json"
-          FLOOR = Version("0.2.0")
+          FLOOR = Version("0.1.2")
 
 
           def published():
@@ -80,10 +80,11 @@ jobs:
 
 
           releases = published()
-          if releases is None:
-              versions = ["git"]
-          else:
-              versions = installable(releases)[-3:] or ["git"]
+          versions = installable(releases or {})[-3:]
+          if not versions:
+              # otto is on PyPI from 0.1.2; nothing to test is a failure, not a pass.
+              print(f"::error::no installable otto release at or above {FLOOR}", file=sys.stderr)
+              raise SystemExit(1)
           print("versions=" + json.dumps(versions))
           PY
   bridge:
@@ -99,6 +100,6 @@ jobs:
         with:
           python-version: "3.12"
       - run: |
-          if [ "${{ matrix.otto }}" = "git" ]; then pip install -r requirements-otto-git.txt; else pip install "otto-cli-agent==${{ matrix.otto }}"; fi
+          pip install "otto-cli-agent==${{ matrix.otto }}"
           pip install pytest
       - run: pytest -q app/src/main/python/tests

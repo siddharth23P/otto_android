@@ -22,10 +22,10 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - name: Install otto (the git pin until 0.2.0 is on PyPI) and pytest
+      - name: Install the pinned otto and pytest
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements-otto-git.txt ]; then pip install -r requirements-otto-git.txt; else pip install -r app/src/main/python/requirements.txt; fi
+          pip install -r app/src/main/python/requirements.txt
           pip install pytest
       - name: Bridge tests (fake PyBridge, fake pipeline, no keys)
         run: pytest -q app/src/main/python/tests

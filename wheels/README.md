@@ -1,10 +1,9 @@
 # wheels/
 
 The Android wheels otto needs that PyPI does not carry for Android:
-pydantic-core, jiter, orjson, ormsgpack, tiktoken, uuid-utils, zstandard and
-numpy (whose own CI builds for Android, though its releases are not published
-for it) -- plus the pure-Python otto wheel built from the pinned git ref until
-0.2.0 is on PyPI.
+pydantic-core, jiter, orjson, ormsgpack, tiktoken, uuid-utils and zstandard.
+otto itself (pure Python, 0.1.2) and numpy (Chaquopy's 1.26.2) come from their
+indexes at build time.
 
 Built by `.github/workflows/wheels.yml` (cibuildwheel, `--platform android`,
 CPython 3.13, arm64-v8a and x86_64, 16 KB page alignment checked).
@@ -35,3 +34,6 @@ a digest in git is the better record.
   `numpy>=2.5.3` -- the newest numpy for Android CPython 3.13 is Chaquopy's own
   1.26.2, and PyPI publishes no Android wheel for any numpy version. numpy is
   therefore an eighth matrix entry here rather than a lowered floor in otto.
+- 2026-09-16: numpy left the matrix -- otto's floor became `numpy>=1.26.2`, which
+  Chaquopy's index serves. otto was published to PyPI as 0.1.2 (the embeddable
+  release, versioned 0.2.0 until then), so the otto wheel left the set too.
