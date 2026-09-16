@@ -13,7 +13,7 @@ import logging
 import os
 import sys
 
-from otto_app import logs
+from otto_app import fake, logs
 
 log = logging.getLogger("otto_app.bootstrap")
 
@@ -34,14 +34,19 @@ def available() -> bool:
     return bool(_state["available"])
 
 
-def configure(home: str, keys_json: str = "{}", debug: bool = False) -> str:
+def configure(home: str, keys_json: str = "{}", debug: bool = False, fake_model: bool = False) -> str:
     """Point otto at `home` and inject `keys` (a JSON object of env var ->
     value). Idempotent. Returns a JSON status the Kotlin side shows. Logging
-    starts first, so even a build that cannot import otto says why."""
+    starts first, so even a build that cannot import otto says why.
+    `fake_model` (debug builds, for the emulator smoke test) swaps otto's
+    pipeline for otto_app/fake.py's script."""
     logs.setup(home, bool(debug))
     if not available():
         return json.dumps({"ok": False, "available": False, "error": _state["error"]})
     keys = json.loads(keys_json or "{}")
+    if fake_model:
+        os.environ[fake.ENV] = "1"
+        keys.setdefault("INCEPTION_API_KEY", fake.PLACEHOLDER_KEY)
     present = sorted(name for name, value in keys.items() if value)
     log.info("configuring otto at %s; keys given: %s", home, ", ".join(present) or "none")
     trust_store()
@@ -53,6 +58,8 @@ def configure(home: str, keys_json: str = "{}", debug: bool = False) -> str:
         log.exception("otto would not configure")
         return json.dumps({"ok": False, "available": True, "error": str(exc)})
     _state.update(configured=True, home=home)
+    if fake_model:
+        fake.install()
     os.environ.setdefault("OTTO_NO_ANIMATION", "1")
     from otto_app import compat
 
