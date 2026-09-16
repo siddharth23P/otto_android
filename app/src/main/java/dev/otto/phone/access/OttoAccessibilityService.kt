@@ -23,12 +23,15 @@ import dev.otto.phone.bridge.DeviceException
 import dev.otto.phone.bridge.DeviceOps
 import dev.otto.phone.bridge.PyBridge
 import dev.otto.phone.bridge.doneWith
+import android.util.Log
+import dev.otto.phone.OttoApp
 import dev.otto.phone.data.Prefs
 import dev.otto.phone.device.AppCatalog
 import dev.otto.phone.device.PlayStore
 import dev.otto.phone.device.SettingsPages
 import dev.otto.phone.guard.GuardRules
 import dev.otto.phone.guard.PolicyGuard
+import dev.otto.phone.transport.Answers
 import dev.otto.phone.transport.EventBus
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.CountDownLatch
@@ -83,7 +86,15 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
         catalog = AppCatalog(this)
         instance = this
         PyBridge.ops = this
-        val strip = AgentOverlay(this) { rootInActiveWindow?.packageName?.toString() == packageName }
+        val strip = AgentOverlay(this, { rootInActiveWindow?.packageName?.toString() == packageName }) { question, text ->
+            // The card answers the agent's question where the person already is; the chat screen is told
+            // so it shows their answer rather than asking again.
+            scope.launch {
+                val sent = (applicationContext as? OttoApp)?.connection?.current?.answer(question.sessionId, question.threadId, text)
+                if (sent == null) Log.w("OttoOverlay", "no transport to answer ${question.threadId} with")
+                Answers.send(question.threadId, text)
+            }
+        }
         overlay = strip
         scope.launch { EventBus.events.collect(strip::onEvent) }
         scope.launch { Prefs(this@OttoAccessibilityService).theme.collect(strip::setTheme) }

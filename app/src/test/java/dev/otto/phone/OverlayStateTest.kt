@@ -51,14 +51,22 @@ class OverlayStateTest {
         assertEquals(w, w.then(3_000L to """{"type":"board","node":"agent","lines":[]}"""))
     }
 
-    @Test fun aQuestionTakesTheEdgeDownUntilTheTurnMovesOn() {
-        val asking = Hidden.then(started, 2_000L to """{"type":"ask","thread_id":"t","question":"Which one?","choices":[]}""")
-        assertTrue((asking as Working).asking)
+    @Test fun aQuestionIsCarriedSoTheCardCanAnswerIt() {
+        val asking = Hidden.then(started, 2_000L to """{"type":"ask","session_id":"s1","thread_id":"t",
+            "question":"Which pen pack?","choices":["Pilot, ₹150","Uniball, ₹240","", "Cello, ₹99", "Reynolds"]}""")
+        val ask = (asking as Working).ask!!
+        assertEquals(OverlayState.Question("s1", "t", "Which pen pack?", listOf("Pilot, ₹150", "Uniball, ₹240", "Cello, ₹99")), ask)
+        assertTrue(asking.asking)
         assertFalse(asking.agentHasPhone)
         assertEquals("OTTO · QUESTION · 0:01", asking.meta(2_000L))
-        assertTrue(asking.words.contains("open Otto"))
-        val resumed = asking.then(9_000L to """{"type":"progress","kind":"tool","text":"Adding the red one"}""")
-        assertTrue(resumed.agentHasPhone)
+        assertEquals("Which pen pack?", asking.words)
+        // Answered from the card, or by the turn moving on by itself.
+        val answered = asking.answered() as Working
+        assertNull(answered.ask)
+        assertTrue(answered.agentHasPhone)
+        assertEquals("Answered", answered.words)
+        assertTrue(asking.then(9_000L to """{"type":"progress","kind":"tool","text":"Adding the red one"}""").agentHasPhone)
+        assertEquals(Hidden, Hidden.answered())
     }
 
     @Test fun theEndOfATurnIsOfferedWithItsFirstLineAndThenExpires() {
@@ -82,6 +90,7 @@ class OverlayStateTest {
     @Test fun openingOttoToAnswerAQuestionDoesNotEndTheTurn() {
         val asking = Hidden.then(started, 2_000L to """{"type":"ask","thread_id":"t","question":"Which one?"}""")
         assertEquals(asking, asking.opened())
+        assertEquals("Otto has a question", ((Hidden.then(started, 2_000L to """{"type":"ask","thread_id":"t"}""")) as Working).ask!!.text)
         val working = Hidden.then(started, 2_000L to """{"type":"progress","kind":"tool","text":"Scrolling"}""")
         assertEquals(working, working.opened())
         val done = working.then(9_000L to """{"type":"final","text":"added"}""")

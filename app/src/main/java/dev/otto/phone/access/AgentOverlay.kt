@@ -55,16 +55,23 @@ import kotlinx.serialization.json.JsonObject
  *    kept to this one signal.
  *  - the card: at the bottom, above the navigation bar, in the app's Studio or Paper palette -- a mono
  *    line (`OTTO · 0:12 · 4 calls`) by a pulsing dot, the step, and "on your phone". While the agent
- *    acts it takes no touch, so a tap the agent makes under it lands. When the turn ends it becomes the
- *    result -- DONE, STOPPED or FAILED, the answer's first line -- with Back to Otto and a close, for
- *    [OverlayState.DONE_SHOWN_MS]; it goes at once if the person opens Otto themselves.
+ *    acts it takes no touch, so a tap the agent makes under it lands. When the turn asks something it
+ *    shows the question with a button per choice, answered from where the person already is; when the
+ *    turn ends it becomes the result -- DONE, STOPPED or FAILED, the answer's first line -- with Back to
+ *    Otto and a close, for [OverlayState.DONE_SHOWN_MS]; it goes at once if the person opens Otto.
  *
  * Kept out of what the agent reads: neither window can be the active window a walk reads, and
  * [hideForCapture] takes both off screen around a screenshot. Nothing shows while Otto's own app is in
  * front. Windows are only touched on the main thread; [hideForCapture] and [restoreAfterCapture] are
  * called from the actions thread and wait for it.
  */
-class AgentOverlay(private val service: AccessibilityService, private val ottoInFront: () -> Boolean) {
+class AgentOverlay(
+    private val service: AccessibilityService,
+    private val ottoInFront: () -> Boolean,
+    /** Sends a question's answer to the agent: the card offers the choices, so the person need not leave
+     *  what they are looking at. */
+    private val answer: (OverlayState.Question, String) -> Unit = { _, _ -> },
+) {
     private val main = Handler(Looper.getMainLooper())
     private val windowManager = service.getSystemService(WindowManager::class.java)
     private val ease = PathInterpolator(MotionTokens.EASE[0], MotionTokens.EASE[1], MotionTokens.EASE[2], MotionTokens.EASE[3])
@@ -303,6 +310,12 @@ class AgentOverlay(private val service: AccessibilityService, private val ottoIn
         card = null
     }
 
+    private fun answer(question: OverlayState.Question, text: String) {
+        answer.invoke(question, text)
+        state = state.answered()
+        render()
+    }
+
     private fun openOtto() {
         runCatching {
             service.startActivity(Intent(service, MainActivity::class.java)
@@ -366,6 +379,9 @@ class AgentOverlay(private val service: AccessibilityService, private val ottoIn
             isClickable = true
             setOnClickListener { dismiss() }
         }
+        /** A question's choices, one button each, rebuilt when the question changes. */
+        private val choices = LinearLayout(service).apply { orientation = LinearLayout.VERTICAL }
+        private var offered: OverlayState.Question? = null
         private val actions = LinearLayout(service).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -390,6 +406,7 @@ class AgentOverlay(private val service: AccessibilityService, private val ottoIn
             }
             addView(top)
             addView(words, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(6) })
+            addView(choices, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
             addView(actions, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(12) })
         }
 
@@ -407,9 +424,45 @@ class AgentOverlay(private val service: AccessibilityService, private val ottoIn
             title = "Otto card"
         }
 
+        /** A button in the card's own style: filled clay for the way on, outlined for a choice. */
+        private fun button(label: String, filled: Boolean, onTap: () -> Unit) = text(14f, if (filled) palette.onAccent else palette.ink,
+            if (filled) Typeface.DEFAULT_BOLD else Typeface.DEFAULT).apply {
+            text = label
+            gravity = Gravity.CENTER
+            minHeight = dp(44)
+            maxLines = 2
+            ellipsize = TextUtils.TruncateAt.END
+            setPadding(dp(14), dp(8), dp(14), dp(8))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(10f)
+                if (filled) setColor(palette.accent.toInt()) else setStroke(dp(1), palette.line.toInt())
+            }
+            isClickable = true
+            setOnClickListener { onTap() }
+        }
+
+        private fun offer(question: OverlayState.Question?) {
+            if (question == offered) return
+            offered = question
+            choices.removeAllViews()
+            if (question == null) {
+                choices.visibility = View.GONE
+                return
+            }
+            choices.visibility = View.VISIBLE
+            for (choice in question.choices) {
+                choices.addView(button(choice, filled = false) { answer(question, choice) },
+                    LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
+            }
+            // Anything the choices do not cover is answered in Otto, where there is a keyboard.
+            choices.addView(button(if (question.choices.isEmpty()) "Answer in Otto" else "Something else", filled = question.choices.isEmpty()) { openOtto() },
+                LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
+        }
+
         fun bind(s: OverlayState, now: Long) {
             meta.text = s.meta(now)
             words.text = s.words
+            offer((s as? OverlayState.Working)?.ask)
             val working = s is OverlayState.Working
             val done = s as? OverlayState.Done
             chip.visibility = if (s.agentHasPhone) View.VISIBLE else View.GONE
@@ -426,10 +479,11 @@ class AgentOverlay(private val service: AccessibilityService, private val ottoIn
                 pulsing = shouldPulse
                 if (shouldPulse) pulse.start() else { pulse.cancel(); dot.alpha = 1f }
             }
-            // Touchable only when the agent is not acting: at the end of the turn, or while it waits on a question.
+            // Touchable only when the agent is not acting: at the end of the turn, or while it waits on a
+            // question, which its own buttons answer.
             val waiting = done != null || (s as? OverlayState.Working)?.asking == true
-            root.isClickable = waiting && done == null
-            root.setOnClickListener(if (waiting && done == null) View.OnClickListener { openOtto() } else null)
+            root.isClickable = false
+            root.setOnClickListener(null)
             root.importantForAccessibility = if (waiting) View.IMPORTANT_FOR_ACCESSIBILITY_AUTO else View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
             if (touchable != waiting) {
                 touchable = waiting
