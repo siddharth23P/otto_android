@@ -14,6 +14,7 @@ import dev.otto.phone.state.ChatReducer
 import dev.otto.phone.state.ChatState
 import dev.otto.phone.state.problem
 import dev.otto.phone.transport.AgentTransport
+import dev.otto.phone.transport.Answers
 import dev.otto.phone.transport.EventBus
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -36,6 +37,12 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         viewModelScope.launch { EventBus.events.collect { json -> onEvent(AgentEvent.parse(json)) } }
+        // The agent-at-work card can answer a question from another app: show that answer here too.
+        viewModelScope.launch {
+            Answers.sent.collect { sent ->
+                if (_state.value.ask?.threadId == sent.threadId) dispatch(ChatAction.Answered(sent.text, now()))
+            }
+        }
     }
 
     private fun now() = System.currentTimeMillis()

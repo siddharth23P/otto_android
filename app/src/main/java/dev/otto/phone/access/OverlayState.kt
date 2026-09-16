@@ -19,7 +19,12 @@ import kotlinx.serialization.json.intOrNull
 sealed interface OverlayState {
     object Hidden : OverlayState
 
-    data class Working(val step: String, val calls: Int, val startedAt: Long, val asking: Boolean = false) : OverlayState
+    data class Working(val step: String, val calls: Int, val startedAt: Long, val ask: Question? = null) : OverlayState {
+        val asking: Boolean get() = ask != null
+    }
+
+    /** A question the turn is waiting on, answerable from the card itself. */
+    data class Question(val sessionId: String, val threadId: String, val text: String, val choices: List<String>)
 
     data class Done(val outcome: Outcome, val summary: String, val calls: Int, val elapsedMs: Long, val at: Long) : OverlayState
 
@@ -33,13 +38,19 @@ sealed interface OverlayState {
                 val calls = maxOf(w.calls, event.int("calls") ?: 0)
                 // A partial is the answer being written, not a step: the card keeps saying what was last done.
                 val step = if (event.str("kind") == "partial") null else clean(event.str("text"))
-                w.copy(step = step ?: w.step, calls = calls, asking = if (step != null) false else w.asking)
+                w.copy(step = step ?: w.step, calls = calls, ask = if (step != null) null else w.ask)
             } ?: this
             "board" -> working?.let { w ->
                 (event["lines"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
-                    ?.lastOrNull { it.isNotBlank() }?.let(::clean)?.let { w.copy(step = it, asking = false) }
+                    ?.lastOrNull { it.isNotBlank() }?.let(::clean)?.let { w.copy(step = it, ask = null) }
             } ?: this
-            "ask" -> working?.copy(asking = true) ?: this
+            "ask" -> working?.copy(ask = Question(
+                sessionId = event.str("session_id") ?: "",
+                threadId = event.str("thread_id") ?: "",
+                text = clean(event.str("question"), MAX_SUMMARY) ?: "Otto has a question",
+                choices = (event["choices"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+                    ?.filter { it.isNotBlank() }?.take(MAX_CHOICES) ?: emptyList(),
+            )) ?: this
             "final" -> working?.let { w ->
                 Done(Outcome.DONE, summary(event.str("text")) ?: "Finished", w.calls, now - w.startedAt, now)
             } ?: Hidden
@@ -52,6 +63,9 @@ sealed interface OverlayState {
             else -> this
         }
     }
+
+    /** The question has been answered from the card: the turn goes on. */
+    fun answered(): OverlayState = (this as? Working)?.copy(ask = null, step = "answered") ?: this
 
     /** What is left to show once the person has opened Otto themselves. A result they have gone to read
      *  is done with; a turn still running is only out of sight while they are in Otto, and comes back
@@ -75,7 +89,7 @@ sealed interface OverlayState {
     /** The card's words. */
     val words: String get() = when (this) {
         Hidden -> ""
-        is Working -> if (asking) "Otto has a question for you -- open Otto to answer" else step.replaceFirstChar { it.uppercase() }
+        is Working -> ask?.text ?: step.replaceFirstChar { it.uppercase() }
         is Done -> summary
     }
 
@@ -86,6 +100,8 @@ sealed interface OverlayState {
         const val MAX_STEP = 100
         /** The done card's one line of answer. */
         const val MAX_SUMMARY = 120
+        /** How many of a question's choices the card offers; the rest are in Otto. */
+        const val MAX_CHOICES = 3
         private val WHITESPACE = Regex("\\s+")
         private val MARKDOWN = Regex("^(#{1,6}\\s+|>\\s*|[-*+]\\s+|\\d+[.)]\\s+)")
         private val EMPHASIS = Regex("\\*\\*|__|`+|~~")
