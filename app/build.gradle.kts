@@ -114,6 +114,7 @@ android {
             initWith(getByName("release"))
             signingConfig = signingConfigs.getByName("debug")
             buildConfigField("boolean", "FAKE_MODEL_ALLOWED", "true")
+            proguardFile("proguard-minified-rules.pro")
             testProguardFiles("proguard-test-rules.pro")
             matchingFallbacks += listOf("release")
         }

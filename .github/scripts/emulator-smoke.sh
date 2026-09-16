@@ -2,21 +2,20 @@
 # The emulator smoke test (#14), run inside reactivecircus/android-emulator-runner.
 #   $1: the build to test -- debug, or minified (release, shrunk, debug-signed)
 # A scripted turn end to end (app/src/androidTest/.../SmokeTest.kt), a process death mid-turn and the
-# notice after it, and the size budget of the APK under test. Logcat is kept for the artifact.
+# notice after it. The APK's size is recorded here; its budget is release.yml's, on the release APKs.
+# Logcat is kept for the artifact.
 set -euo pipefail
 build=${1:-debug}
 pkg=dev.otto.phone
 runner=$pkg.test/androidx.test.runner.AndroidJUnitRunner
 cls=$pkg.SmokeTest
 task=$(tr '[:lower:]' '[:upper:]' <<< "${build:0:1}")${build:1}
-apk_budget_mb=75
 mkdir -p smoke
 
 ./gradlew --no-daemon -PembeddedPython=true -Pabi=x86_64 -PtestBuildType="$build" "install$task" "install${task}AndroidTest"
 
 size=$(stat -c %s "app/build/outputs/apk/$build/app-$build.apk")
-echo "APK ($build, x86_64): $((size / 1048576)) MB (budget $apk_budget_mb MB)" | tee -a smoke/budgets.txt
-if [ "$size" -gt $((apk_budget_mb * 1048576)) ]; then echo "::error::the $build APK is over $apk_budget_mb MB"; exit 1; fi
+echo "APK ($build, x86_64): $((size / 1048576)) MB" | tee -a smoke/budgets.txt
 
 service_on() {
   adb shell settings put secure enabled_accessibility_services "$pkg/$pkg.access.OttoAccessibilityService"
