@@ -1,6 +1,7 @@
 package dev.otto.phone
 
 import android.Manifest
+import android.app.UiAutomation
 import android.content.Intent
 import android.os.Build
 import androidx.compose.ui.test.ExperimentalTestApi
@@ -44,11 +45,15 @@ class SmokeTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val context = instrumentation.targetContext
     private var scenario: ActivityScenario<MainActivity>? = null
+    /** A UiAutomation connection suppresses every accessibility service by default -- Otto's too --
+     *  unless it is asked for without that, on its first use. */
+    private val automation: UiAutomation
+        get() = instrumentation.getUiAutomation(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES)
 
     @Before fun fakeModelAndPermissions() {
         File(context.filesDir, EmbeddedTransport.FAKE_MODEL_FLAG).writeText("1")
         if (Build.VERSION.SDK_INT >= 33) {
-            instrumentation.uiAutomation.grantRuntimePermission(context.packageName, Manifest.permission.POST_NOTIFICATIONS)
+            automation.grantRuntimePermission(context.packageName, Manifest.permission.POST_NOTIFICATIONS)
         }
     }
 
@@ -79,7 +84,7 @@ class SmokeTest {
     }
 
     private fun shell(command: String) {
-        instrumentation.uiAutomation.executeShellCommand(command).close()
+        automation.executeShellCommand(command).close()
         Thread.sleep(300)
     }
 
