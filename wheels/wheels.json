@@ -1,7 +1,7 @@
 {
  "comment": "The Android wheel set the embedded runtime installs. Built by .github/workflows/wheels.yml and published as a GitHub Release; the build downloads what it needs into app/build/wheels and checks every file against these digests. The .whl files themselves are never committed.",
  "repository": "siddharth23P/otto_android",
- "tag": "wheels-cp313-otto-0.2.0",
+ "tag": "wheels-cp313-otto-0.1.2",
  "python": "cp313",
  "abis": [
   "arm64_v8a",
@@ -37,11 +37,6 @@
    "name": "ormsgpack-1.12.2-cp313-cp313-android_24_x86_64.whl",
    "size": 219339,
    "sha256": "d87af29a803f89f441af5e326f3532c1f12abee301d4d3453ed4588658c8aa36"
-  },
-  {
-   "name": "otto_cli_agent-0.2.0-py3-none-any.whl",
-   "size": 647238,
-   "sha256": "dff11b8f0fc35a838494772179911010f77cad8aaaa895ef4e31398edf107305"
   },
   {
    "name": "pydantic_core-2.46.5-cp313-cp313-android_24_arm64_v8a.whl",

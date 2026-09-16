@@ -13,7 +13,7 @@ import inspect
 from dataclasses import dataclass
 from importlib import metadata
 
-MIN_OTTO = (0, 2, 0)
+MIN_OTTO = (0, 1, 2)
 MAX_API = 1
 
 

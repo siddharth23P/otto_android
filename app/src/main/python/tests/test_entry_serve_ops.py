@@ -355,7 +355,7 @@ def test_delete_note(bridge, tmp_path, lesson_bank):
 # -- an older otto ---------------------------------------------------------------------------------
 
 def test_an_older_otto_leaves_the_functions_out(monkeypatch):
-    """What Kotlin sees against otto 0.2.0: none of the serve operations,
+    """What Kotlin sees against otto 0.1.2: none of the serve operations,
     and a start_turn without `phone`, so the app says "needs a newer otto"."""
     old = {"disabled_tools", "guidance", "environ_keys", "transcript", "phone_commit"}
     real_has = compat.has

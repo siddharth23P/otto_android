@@ -1,6 +1,6 @@
 # The Android wheels otto needs that PyPI does not carry (pydantic-core, jiter,
-# orjson, ormsgpack, tiktoken, uuid-utils, zstandard) plus the
-# pure-Python otto wheel from the pinned ref. One job per package so a failure
+# orjson, ormsgpack, tiktoken, uuid-utils, zstandard). otto itself is pure Python
+# and comes from PyPI at build time. One job per package so a failure
 # names its package. A green run on a tag ref publishes the whole set as a
 # GitHub Release: the binaries stay out of the repository, and wheels/wheels.json
 # names the release and the digest of every file the build downloads.
@@ -15,12 +15,12 @@ on:
         default: false
       tag:
         description: "Release tag to publish or update"
-        default: wheels-cp313-otto-0.2.0
+        default: wheels-cp313-otto-0.1.2
   schedule:
     - cron: "17 3 * * *"
   push:
     branches: [main]
-    paths: [".github/workflows/wheels.yml", "app/src/main/python/requirements.txt", "requirements-otto-git.txt"]
+    paths: [".github/workflows/wheels.yml", "app/src/main/python/requirements.txt"]
 
 permissions:
   contents: read
@@ -63,7 +63,7 @@ jobs:
       - name: Resolve the version otto's lock needs
         id: version
         run: |
-          pip install -r requirements-otto-git.txt 2>/dev/null || pip install -r app/src/main/python/requirements.txt
+          pip install -r app/src/main/python/requirements.txt
           python - <<'PY' >> "$GITHUB_OUTPUT"
           import importlib.metadata as m
           name = "${{ matrix.package }}"
@@ -111,28 +111,10 @@ jobs:
           name: wheels-${{ matrix.package }}
           path: wheelhouse/*.whl
 
-  otto-wheel:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.13"
-      - name: Build the pure-Python otto wheel from the pinned ref
-        run: |
-          pip install build
-          ref=$(sed -n 's/.*@\([0-9a-f]\{7,40\}\).*/\1/p' requirements-otto-git.txt | head -1)
-          git clone https://github.com/siddharth23P/otto_agent src && cd src && git checkout "${ref:-main}"
-          python -m build --wheel --outdir ../wheelhouse
-      - uses: actions/upload-artifact@v7
-        with:
-          name: wheels-otto
-          path: wheelhouse/*.whl
-
   publish:
     # The wheel set as one checksummed Release, which app/build.gradle.kts downloads by the digests in
     # wheels/wheels.json. Only on demand: a nightly run answers "do they still build", not "ship this".
-    needs: [compiled, otto-wheel]
+    needs: [compiled]
     if: github.event_name == 'workflow_dispatch' && inputs.publish
     runs-on: ubuntu-latest
     permissions:
@@ -180,7 +162,7 @@ jobs:
           path: wheels/wheels.json
 
   summary:
-    needs: [compiled, otto-wheel]
+    needs: [compiled]
     if: always()
     runs-on: ubuntu-latest
     steps:

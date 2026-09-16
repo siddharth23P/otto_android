@@ -27,7 +27,7 @@ are the same in every mode.
 ./gradlew assembleDebug                      # embedded runtime off (default): the app pairs with otto serve
 ./gradlew -PembeddedPython=true assembleDebug # once wheels/ carries the Android wheels
 ./gradlew testDebugUnitTest
-pip install -r requirements-otto-git.txt pytest && pytest -q app/src/main/python/tests
+pip install -r app/src/main/python/requirements.txt pytest && pytest -q app/src/main/python/tests
 ```
 
 Android Studio Ladybug or newer, JDK 17, compileSdk 35, minSdk 30.
@@ -74,7 +74,6 @@ wheels/                          Android wheels from wheels.yml
 `app/src/main/python/requirements.txt` pins one Otto release; Dependabot bumps
 it daily, `compat.yml` runs the bridge against the pin and the last three
 releases, and `otto_app/compat.py` refuses an `API_VERSION` it was never
-tested against rather than guessing. Until 0.2.0 is on PyPI the pin is
-served by `requirements-otto-git.txt`.
+tested against rather than guessing.
 
 MIT licensed.

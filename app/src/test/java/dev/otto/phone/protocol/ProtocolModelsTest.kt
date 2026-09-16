@@ -20,7 +20,7 @@ class ProtocolModelsTest {
         assertEquals("0.3.0", hello.ottoVersion)
         assertEquals(2, hello.protocolVersion)
         assertEquals(listOf("sessions", "setup.status"), hello.features)
-        assertEquals(emptyList<String>(), ok<Hello>("""{"type":"hello_ok","otto_version":"0.2.0","api_version":1,"protocol_version":1,"min_protocol":1}""").features)
+        assertEquals(emptyList<String>(), ok<Hello>("""{"type":"hello_ok","otto_version":"0.1.2","api_version":1,"protocol_version":1,"min_protocol":1}""").features)
     }
 
     @Test fun sessionsRepliesDecode() {
@@ -51,7 +51,7 @@ class ProtocolModelsTest {
         val serve = ok<SetupStatus>("""{"op":"status","ready":true,"key_status":{"INCEPTION_API_KEY":"********1234"},"vendor_rows":[{"name":"inception","label":"Inception (required)","key_var":"INCEPTION_API_KEY","url_var":null,"key_present":true,"url_present":true,"custom":false,"masked_key":"********1234"}],"version":{"otto":"0.3.0","api":1},"setup_write":false}""")
         assertEquals("********1234", serve.maskedKeys["INCEPTION_API_KEY"])
         assertTrue(serve.vendorRows.single().keyPresent)
-        val embedded = ok<SetupStatus>("""{"ok":true,"available":true,"ready":false,"keys":{"GEMINI_API_KEY":"not set"},"version":{"otto":"0.2.0","api":1,"python":"3.13.1"},"compat":{"otto":"0.2.0","api":1,"features":["guidance"]}}""")
+        val embedded = ok<SetupStatus>("""{"ok":true,"available":true,"ready":false,"keys":{"GEMINI_API_KEY":"not set"},"version":{"otto":"0.1.2","api":1,"python":"3.13.1"},"compat":{"otto":"0.1.2","api":1,"features":["guidance"]}}""")
         assertEquals("not set", embedded.maskedKeys["GEMINI_API_KEY"])
         assertEquals(listOf("guidance"), embedded.compat!!.features)
     }
