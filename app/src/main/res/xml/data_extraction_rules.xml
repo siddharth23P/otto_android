@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12+: allowBackup="false" stops cloud backup but not a device-to-device transfer, which
+     these rules govern. Nothing leaves with either: otto's home (files/otto: sessions, lessons,
+     logs) and the DataStore holding the encrypted keys stay on this phone. The keys could not be
+     decrypted elsewhere anyway: their Keystore key never leaves the device. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" path="." />
+        <exclude domain="file" path="." />
+        <exclude domain="database" path="." />
+        <exclude domain="sharedpref" path="." />
+        <exclude domain="external" path="." />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" path="." />
+        <exclude domain="file" path="." />
+        <exclude domain="database" path="." />
+        <exclude domain="sharedpref" path="." />
+        <exclude domain="external" path="." />
+    </device-transfer>
+</data-extraction-rules>

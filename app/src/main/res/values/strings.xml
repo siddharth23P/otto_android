@@ -2,5 +2,5 @@
 <resources>
     <string name="app_name">Otto</string>
     <string name="service_label">Otto phone helper</string>
-    <string name="service_description">Lets Otto read the screen of the app in front and tap, type and scroll on your behalf, only while carrying out a request you typed in Otto. It never acts inside payment or banking apps, never enters PINs, OTPs or passwords, and stops at any payment step for you to complete.</string>
+    <string name="service_description">Lets Otto read the screen of the app in front, take screenshots of it, and tap, type and scroll on your behalf, only while carrying out a request you typed in Otto. It never acts inside payment or banking apps, never enters PINs, OTPs or passwords, and stops at any payment step for you to complete.</string>
 </resources>

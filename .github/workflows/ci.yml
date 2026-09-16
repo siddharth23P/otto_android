@@ -50,8 +50,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Unit tests
         run: ./gradlew --no-daemon testDebugUnitTest
-      - name: Debug APK (embedded Python off until wheels/ is populated)
-        run: ./gradlew --no-daemon assembleDebug
+      - name: Debug APK with otto on the phone (the wheel set comes from its release)
+        run: ./gradlew --no-daemon -PembeddedPython=true assembleDebug
       - uses: actions/upload-artifact@v7
         with:
           name: otto-debug-apk
