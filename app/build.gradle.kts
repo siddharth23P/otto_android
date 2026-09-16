@@ -15,6 +15,15 @@ plugins {
 // unavailable" and offers otto serve.
 val embeddedPython = (project.findProperty("embeddedPython") as String?)?.toBoolean() ?: false
 
+// Which ABIs one build carries: both by default; a release builds one APK per ABI with
+// -Pabi=arm64-v8a or -Pabi=x86_64, each half the size of the two together.
+val abis = (project.findProperty("abi") as String?)?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }
+    ?: listOf("arm64-v8a", "x86_64")
+
+// Release signing comes from the building machine's ~/.gradle/gradle.properties, never from the
+// repository. Without those properties a release build is left unsigned.
+val releaseStore = project.findProperty("OTTO_RELEASE_STORE_FILE") as String?
+
 // Where the wheel set lands for pip. The binaries are not in the repository:
 // wheels/wheels.json names the release that holds them and the digest of each,
 // and `fetchWheels` puts them here -- from ../wheels when a build already has
@@ -70,13 +79,25 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
-        ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
+        ndk { abiFilters += abis }
         buildConfigField("boolean", "EMBEDDED_PYTHON", embeddedPython.toString())
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        if (releaseStore != null) {
+            create("release") {
+                storeFile = file(releaseStore)
+                storePassword = project.findProperty("OTTO_RELEASE_STORE_PASSWORD") as String?
+                keyAlias = project.findProperty("OTTO_RELEASE_KEY_ALIAS") as String?
+                keyPassword = project.findProperty("OTTO_RELEASE_KEY_PASSWORD") as String?
+            }
+        }
+    }
+
     buildTypes {
         release {
+            if (releaseStore != null) signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
