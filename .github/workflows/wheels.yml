@@ -127,17 +127,23 @@ jobs:
           # upstream after 2.5.3 shipped, so the property is supplied here instead, for the two
           # 64-bit ABIs this builds. numpy's cross-compilation docs name this exact property.
           if [ "${{ matrix.package }}" = "numpy" ]; then
+            # numpy's extension modules leave Py* symbols for the interpreter to resolve when the
+            # module is loaded, which is how CPython extensions link on Android. cibuildwheel's
+            # LDFLAGS end in -Wl,--no-undefined, which refuses that: 303 of 343 objects compiled,
+            # then every Py* symbol came back undefined. Putting the opposite in LDFLAGS does not
+            # help -- cibuildwheel composes that variable and appends its own flag after ours, and
+            # lld takes the last one (the link line carried both, 2026-09-16). Meson applies a
+            # cross file's link args after the environment's, so it goes here, beside the
+            # longdouble_format property 2.5.3 cannot work out for itself.
             cat > "$PWD/android-cross.ini" <<'INI'
           [properties]
           longdouble_format = 'IEEE_QUAD_LE'
+
+          [built-in options]
+          c_link_args = ['-Wl,--unresolved-symbols=ignore-all']
+          cpp_link_args = ['-Wl,--unresolved-symbols=ignore-all']
           INI
             export CIBW_CONFIG_SETTINGS_ANDROID="$CIBW_CONFIG_SETTINGS_ANDROID setup-args=--cross-file=$PWD/android-cross.ini"
-            # numpy's extension modules leave Py* symbols for the interpreter to resolve when the
-            # module is loaded, which is how CPython extensions link on Android. The environment's
-            # -Wl,--no-undefined refuses that: 303 of 343 objects compiled, then every Py* symbol
-            # came back undefined (2026-09-16). Allowed for numpy alone; the 16 KB alignment this
-            # job checks is kept.
-            export CIBW_ENVIRONMENT_ANDROID="LDFLAGS='-Wl,-z,max-page-size=16384 -Wl,--allow-shlib-undefined -Wl,--unresolved-symbols=ignore-all'"
           fi
           cd src && cibuildwheel --output-dir ../wheelhouse
       - name: Check 16 KB LOAD alignment on every native library
