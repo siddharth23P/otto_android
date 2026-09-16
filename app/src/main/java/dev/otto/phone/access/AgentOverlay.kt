@@ -22,6 +22,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.provider.Settings
+import android.util.Log
 import android.text.TextUtils
 import android.util.TypedValue
 import android.view.Display
@@ -140,6 +141,7 @@ class AgentOverlay(private val service: AccessibilityService, private val ottoIn
 
     /** Brings the windows in line with the state. */
     private fun render() {
+        Log.i(TAG, "state=${state.javaClass.simpleName} inFront=$inFront capturing=$capturing edge=${edge != null} card=${card != null}")
         main.removeCallbacks(tick)
         main.removeCallbacks(expire)
         val s = state
@@ -306,7 +308,10 @@ class AgentOverlay(private val service: AccessibilityService, private val ottoIn
             service.startActivity(Intent(service, MainActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
         }
-        state = OverlayState.Hidden
+        // A question answered in Otto is not the end of the turn: keep the turn, and let being in front
+        // put the windows away until the agent goes back to work.
+        state = state.opened()
+        inFront = true
         render()
     }
 
@@ -476,6 +481,7 @@ class AgentOverlay(private val service: AccessibilityService, private val ottoIn
         const val CAPTURE_GAP_MS = 100L
         /** How soon after a window comes or goes the windows-changed event it causes arrives. */
         const val OWN_WINDOWS_MS = 300L
+        private const val TAG = "OttoOverlay"
         /** One lap of the border's light. */
         const val LAP_MS = 2400L
         /** How often the card's clock moves. */
