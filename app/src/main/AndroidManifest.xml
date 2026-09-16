@@ -67,5 +67,9 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Runs the on-device agent while it performs a task the user asked for in chat" />
         </service>
+        <!-- The QR scanner's module arrives with the app from Play services, not on the first scan. -->
+        <meta-data
+            android:name="com.google.mlkit.vision.DEPENDENCIES"
+            android:value="barcode_ui" />
     </application>
 </manifest>

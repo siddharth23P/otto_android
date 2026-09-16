@@ -74,6 +74,7 @@ import dev.otto.phone.ui.theme.OttoShapes
 import dev.otto.phone.ui.theme.OttoTheme
 import dev.otto.phone.ui.theme.PulseDot
 import dev.otto.phone.transport.NEEDS_NEWER_OTTO
+import dev.otto.phone.transport.ServeVersion
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
@@ -202,9 +203,13 @@ private fun ChatBanners(m: Models, app: dev.otto.phone.ui.AppState) {
             is Link.Failed -> Banner(link.message, edge = c.bad, action = "Retry", onAction = { m.app.connect() }, secondAction = "Settings", onSecondAction = { m.app.push(Route.Settings) })
             Link.NeedsKey -> Banner("otto needs a key before it can answer.", action = "Keys", onAction = { m.app.push(Route.Keys) })
             Link.Connecting -> Unit
+            Link.Reconnecting -> Banner("Lost otto serve — reconnecting…", edge = c.warn, action = "Retry now", onAction = { m.app.connect() })
             Link.Ready -> if (!newerDismissed && !app.capabilities.supports(Op.SESSIONS_USAGE)) {
                 Banner("$NEEDS_NEWER_OTTO — sessions, settings and memory need otto serve 0.3 or later.", edge = c.faint, action = "OK", onAction = { newerDismissed = true })
             }
+        }
+        if (app.transportName == "serve" && app.link == Link.Ready) ServeVersion.hint(app.ottoVersion)?.let { hint ->
+            if (!newerDismissed) Banner(hint, edge = c.warn, action = "OK", onAction = { newerDismissed = true })
         }
         if (app.handedOver) Banner(
             "Otto stopped: this step is yours (a payment, a PIN or a protected screen).",

@@ -25,6 +25,9 @@ import dev.otto.phone.transport.ServeProtocol
 import dev.otto.phone.ui.theme.ThemeChoice
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -32,6 +35,8 @@ import kotlinx.coroutines.launch
  *  or not reached at all (in the transport's own words). */
 sealed interface Link {
     data object Connecting : Link
+    /** Was connected; the transport is getting the connection back. */
+    data object Reconnecting : Link
     data object Ready : Link
     /** Reached, but otto can't answer yet: no usable key. */
     data object NeedsKey : Link
@@ -83,6 +88,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             if (accepted) connect()
         }
         viewModelScope.launch { prefs.theme.collect { pref -> _state.update { it.copy(theme = ThemeChoice.fromPref(pref)) } } }
+        // A serve socket that dropped and is coming back: say so, then ask again once it is.
+        viewModelScope.launch {
+            @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+            connection.transport.flatMapLatest { it?.reconnecting ?: flowOf(false) }.distinctUntilChanged().collect { again ->
+                if (again) { OttoLog.w(LINK, "reconnecting"); _state.update { it.copy(link = Link.Reconnecting) } }
+                else if (_state.value.link == Link.Reconnecting) { OttoLog.i(LINK, "reconnected"); refreshStatus() }
+            }
+        }
         // After every turn event the guard may have handed over or noted something.
         viewModelScope.launch { EventBus.events.collect { refreshService() } }
     }
@@ -195,6 +208,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private fun applyHello(name: String, hello: Hello, capabilities: Capabilities) = _state.update {
         it.copy(transportName = name, capabilities = capabilities, ottoVersion = hello.ottoVersion, apiVersion = hello.apiVersion, pairingError = null)
     }
+
+    fun pairingProblem(message: String) = _state.update { it.copy(pairingError = message) }
 
     fun pairServe(pairing: String) = viewModelScope.launch {
         val parsed = ServeProtocol.parsePairing(pairing.trim())

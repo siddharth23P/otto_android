@@ -29,6 +29,8 @@ import dev.otto.phone.protocol.SessionUsage
 import dev.otto.phone.protocol.SetupStatus
 import dev.otto.phone.protocol.Transcript
 import dev.otto.phone.protocol.TurnStarted
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.json.JsonElement
 
 /** How the UI reaches otto: the embedded runtime or `otto serve`, one typed shape. A request the
@@ -38,6 +40,8 @@ interface AgentTransport {
     val name: String
     /** What the other end can do; `Capabilities.V1` until `start` has answered. */
     val capabilities: Capabilities
+    /** True while a transport that was connected is trying to get the connection back. */
+    val reconnecting: StateFlow<Boolean> get() = NEVER_RECONNECTING
 
     suspend fun start(): Reply<Hello>
 
@@ -87,3 +91,5 @@ interface AgentTransport {
 
 /** The words for Unsupported, said the same way everywhere. */
 const val NEEDS_NEWER_OTTO = "needs a newer otto"
+
+private val NEVER_RECONNECTING: StateFlow<Boolean> = MutableStateFlow(false)

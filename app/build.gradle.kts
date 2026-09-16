@@ -166,5 +166,8 @@ dependencies {
     implementation(libs.markdown.renderer.m3)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.datastore.preferences)
+    // Pairing by QR (#16): Google's scanner UI, which needs no camera permission of Otto's own.
+    implementation(libs.code.scanner)
     testImplementation(libs.junit)
+    testImplementation(libs.mockwebserver)
 }
