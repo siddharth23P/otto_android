@@ -1,6 +1,5 @@
 # The Android wheels otto needs that PyPI does not carry (pydantic-core, jiter,
-# orjson, ormsgpack, tiktoken, uuid-utils, zstandard and numpy, whose own CI
-# builds for Android but whose releases are not published for it) plus the
+# orjson, ormsgpack, tiktoken, uuid-utils, zstandard) plus the
 # pure-Python otto wheel from the pinned ref. One job per package so a failure
 # names its package. A green run on a tag ref publishes the whole set as a
 # GitHub Release: the binaries stay out of the repository, and wheels/wheels.json
@@ -44,7 +43,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        package: [pydantic-core, jiter, orjson, ormsgpack, tiktoken, uuid-utils, zstandard, numpy]
+        package: [pydantic-core, jiter, orjson, ormsgpack, tiktoken, uuid-utils, zstandard]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -78,73 +77,23 @@ jobs:
           pip download --no-binary :all: --no-deps -d sdist "${{ matrix.package }}==${{ steps.version.outputs.version }}"
           mkdir -p src && tar -xzf sdist/*.tar.gz -C src --strip-components=1
       - name: Build with cibuildwheel for Android
-        env:
-          # numpy keeps its Android build settings in its own [tool.cibuildwheel.android]
-          # tables, so they are kept (see the strip step) -- but its CI builds against an
-          # OpenBLAS built for Android, which we do not carry. numpy's internal fallback
-          # routines are allowed instead: otto uses numpy for dot products and argsort over
-          # a few hundred floats (agent/memory), where a slower BLAS costs nothing.
-          CIBW_CONFIG_SETTINGS_ANDROID: ${{ matrix.package == 'numpy' && 'setup-args=-Dallow-noblas=true setup-args=-Duse-ilp64=false build-dir=build' || '' }}
         run: |
           pip install cibuildwheel
           # An sdist's own [tool.cibuildwheel] is written for the version its
           # maintainers use: zstandard names the enable group
           # "cpython-freethreading", which cibuildwheel 4 no longer knows and
-          # refuses to parse. Dropping the tables is the fix for that one, and
-          # the wrong move for numpy, whose Android settings live in them --
-          # without them meson reaches a check it can only answer by running an
-          # Android binary on the runner (_core/meson.build, "Can not run test
-          # applications in this cross environment", 2026-09-16).
-          python - "${{ matrix.package }}" <<'PY'
-          import re, sys, pathlib
-          keep = {"numpy"}
-          package = sys.argv[1]
+          # refuses to parse. Our settings all come from the environment, so
+          # drop the sdist's table and build from ours alone.
+          python - <<'PY'
+          import re, pathlib
           p = pathlib.Path("src/pyproject.toml")
-          if package in keep:
-              # Keep the settings, drop the hooks: numpy's before-build installs an Android
-              # OpenBLAS we do not use and calls `python -m pip` in a venv uv built without
-              # pip, which fails before anything is compiled (2026-09-16). Same for the test
-              # hooks, which want a device.
-              text = p.read_text()
-              cleaned = re.sub(r'(?m)^(before-build|before-test|test-command|test-requires)\s*=.*(?:\n(?![A-Za-z\[]).*)*\n', "", text)
-              # And say it in the file rather than only in the environment: the table asks for a
-              # BLAS we do not carry, and one source of truth beats trusting an override order.
-              cleaned = cleaned.replace("-Dallow-noblas=false", "-Dallow-noblas=true")
-              if cleaned != text:
-                  p.write_text(cleaned)
-              print(f"kept {package}'s [tool.cibuildwheel] settings, dropped its hooks and its BLAS requirement")
-          elif p.exists():
+          if p.exists():
               text = p.read_text()
               cleaned = re.sub(r"(?ms)^\[tool\.cibuildwheel(?:\.[^\]]*)?\]\n.*?(?=^\[|\Z)", "", text)
               if cleaned != text:
                   p.write_text(cleaned)
                   print("dropped the sdist's [tool.cibuildwheel] tables")
           PY
-          # numpy 2.5.3's meson reads `longdouble_format` from a cross-file property and, finding
-          # none, runs a test binary to detect it -- which no cross build can do
-          # (_core/meson.build:507, "Can not run test applications in this cross environment").
-          # numpy's own Android branch hard-codes IEEE_QUAD_LE for 64-bit Android, but it landed
-          # upstream after 2.5.3 shipped, so the property is supplied here instead, for the two
-          # 64-bit ABIs this builds. numpy's cross-compilation docs name this exact property.
-          if [ "${{ matrix.package }}" = "numpy" ]; then
-            # numpy's extension modules leave Py* symbols for the interpreter to resolve when the
-            # module is loaded, which is how CPython extensions link on Android. cibuildwheel's
-            # LDFLAGS end in -Wl,--no-undefined, which refuses that: 303 of 343 objects compiled,
-            # then every Py* symbol came back undefined. Putting the opposite in LDFLAGS does not
-            # help -- cibuildwheel composes that variable and appends its own flag after ours, and
-            # lld takes the last one (the link line carried both, 2026-09-16). Meson applies a
-            # cross file's link args after the environment's, so it goes here, beside the
-            # longdouble_format property 2.5.3 cannot work out for itself.
-            cat > "$PWD/android-cross.ini" <<'INI'
-          [properties]
-          longdouble_format = 'IEEE_QUAD_LE'
-
-          [built-in options]
-          c_link_args = ['-Wl,--unresolved-symbols=ignore-all']
-          cpp_link_args = ['-Wl,--unresolved-symbols=ignore-all']
-          INI
-            export CIBW_CONFIG_SETTINGS_ANDROID="$CIBW_CONFIG_SETTINGS_ANDROID setup-args=--cross-file=$PWD/android-cross.ini"
-          fi
           cd src && cibuildwheel --output-dir ../wheelhouse
       - name: Check 16 KB LOAD alignment on every native library
         run: |
