@@ -77,8 +77,8 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
     /** Lives as long as the service: follows the agent's events for the status strip. */
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var overlay: AgentOverlay? = null
-    /** The package and page a screenshot was refused on as a protected window: that page is secure. */
-    @Volatile private var securePage: Pair<String, Long>? = null
+    /** Which page is a protected window, learnt from a capture the system refused (#18). */
+    private val secureProbe = SecureProbe(SystemClock::uptimeMillis)
     private var dumpReceiver: BroadcastReceiver? = null
 
     override fun onServiceConnected() {
@@ -204,9 +204,9 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
         val metrics = resources.displayMetrics
         val pkg = root.packageName?.toString() ?: ""
         val page = log.pageOf(pkg)
-        // FLAG_SECURE is not visible to accessibility: only a refused screenshot says a window is protected,
-        // and it stays so for that page -- until the app opens another.
-        val secure = securePage == (pkg to page.seq)
+        // FLAG_SECURE is not visible to accessibility: only a refused capture says a window is protected,
+        // so each page is probed the first time it is read, and the verdict holds until the app opens another.
+        val secure = secureOf(pkg, page.seq)
         val keyboard = windows.any { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }
         val snapshot = Snapshot(
             snapshotId = "s${counter.incrementAndGet()}", packageName = pkg, label = catalog.label(pkg),
@@ -218,6 +218,36 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
         // page scrolled past its total is still one, and otto takes the phone's class as a floor.
         if (keep) { lastSnapshot = snapshot; lastNodes = nodes }
         return snapshot
+    }
+
+    /**
+     * Whether page `seq` of `pkg` is a protected window: known, or learnt now from one capture whose
+     * picture is closed unread. A capture the system refused as too soon, or that did not answer in time,
+     * leaves the page unknown -- judged not protected this read, and probed again on the next.
+     */
+    private fun secureOf(pkg: String, seq: Long): Boolean {
+        secureProbe.known(pkg, seq)?.let { return it }
+        if (secureProbe.skip(pkg, packageName)) return false
+        secureProbe.waitMs().takeIf { it > 0 }?.let(Thread::sleep)
+        val latch = CountDownLatch(1)
+        val answer = java.util.concurrent.atomic.AtomicReference<Boolean?>(null)
+        secureProbe.captured()
+        takeScreenshot(Display.DEFAULT_DISPLAY, capture, object : TakeScreenshotCallback {
+            override fun onSuccess(screenshot: ScreenshotResult) {
+                screenshot.hardwareBuffer?.close()
+                answer.set(false)
+                latch.countDown()
+            }
+            override fun onFailure(errorCode: Int) {
+                if (errorCode == ERROR_TAKE_SCREENSHOT_SECURE_WINDOW) answer.set(true)
+                latch.countDown()
+            }
+        })
+        if (!latch.await(SecureProbe.ANSWER_MS, TimeUnit.MILLISECONDS)) return false
+        val secure = answer.get() ?: return false
+        secureProbe.record(pkg, seq, secure)
+        if (secure) OttoLog.i("OttoGuard", "$pkg page $seq is a protected window")
+        return secure
     }
 
     override fun tree(): JsonObject = serial {
@@ -555,6 +585,7 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
         var error = 0
         // Otto's status strip is not part of the app's screen: off for the capture, back once it is taken.
         overlay?.hideForCapture()
+        secureProbe.captured()
         try {
             takeScreenshot(Display.DEFAULT_DISPLAY, capture, object : TakeScreenshotCallback {
                 override fun onSuccess(screenshot: ScreenshotResult) {
@@ -572,7 +603,7 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
         }
         val shot = bitmap ?: when (error) {
             ERROR_TAKE_SCREENSHOT_SECURE_WINDOW -> {
-                securePage = current.packageName to log.pageOf(current.packageName).seq
+                secureProbe.record(current.packageName, log.pageOf(current.packageName).seq, isSecure = true)
                 guard.handedOver = true
                 throw DeviceException("this window is protected (secure content) -- the person takes over", "guard", handover = true)
             }
