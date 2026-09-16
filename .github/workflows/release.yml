@@ -88,7 +88,8 @@ jobs:
           echo "using $apksigner"
           for apk in dist/*.apk; do
             report=$("$apksigner" verify --print-certs "$apk" 2>&1) || { echo "$report"; echo "::error::$apk does not verify"; exit 1; }
-            got=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' <<< "$report")
+            # "Signer #1 certificate SHA-256 digest:" or, from build-tools 37, "V2 Signer: certificate ...".
+            got=$(sed -n 's/^.*[Ss]igner.*certificate SHA-256 digest: //p' <<< "$report" | head -1)
             if [ "$got" != "$CERT_SHA256" ]; then echo "$report"; echo "::error::$apk is signed with '$got'"; exit 1; fi
             # #14: at most 75 MB per ABI (numpy and OpenBLAS alone are 22 MB unpacked).
             size=$(stat -c %s "$apk")

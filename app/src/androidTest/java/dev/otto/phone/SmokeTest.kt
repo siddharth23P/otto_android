@@ -84,6 +84,9 @@ class SmokeTest {
         assumeTrue(death() == null)
         val started = System.nanoTime()
         launch()
+        // The workflow switched the service on; it binds to this process a moment after the app starts.
+        val deadline = System.currentTimeMillis() + 30_000
+        while (OttoAccessibilityService.instance == null && System.currentTimeMillis() < deadline) Thread.sleep(250)
         assertNotNull("the accessibility service is not on", OttoAccessibilityService.instance)
         send("show me the display settings")
         // The script opened Settings > Display, so Otto is behind it; its question waits in the chat.
