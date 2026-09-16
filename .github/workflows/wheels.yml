@@ -101,7 +101,18 @@ jobs:
           package = sys.argv[1]
           p = pathlib.Path("src/pyproject.toml")
           if package in keep:
-              print(f"keeping {package}'s own [tool.cibuildwheel] tables")
+              # Keep the settings, drop the hooks: numpy's before-build installs an Android
+              # OpenBLAS we do not use and calls `python -m pip` in a venv uv built without
+              # pip, which fails before anything is compiled (2026-09-16). Same for the test
+              # hooks, which want a device.
+              text = p.read_text()
+              cleaned = re.sub(r'(?m)^(before-build|before-test|test-command|test-requires)\s*=.*(?:\n(?![A-Za-z\[]).*)*\n', "", text)
+              # And say it in the file rather than only in the environment: the table asks for a
+              # BLAS we do not carry, and one source of truth beats trusting an override order.
+              cleaned = cleaned.replace("-Dallow-noblas=false", "-Dallow-noblas=true")
+              if cleaned != text:
+                  p.write_text(cleaned)
+              print(f"kept {package}'s [tool.cibuildwheel] settings, dropped its hooks and its BLAS requirement")
           elif p.exists():
               text = p.read_text()
               cleaned = re.sub(r"(?ms)^\[tool\.cibuildwheel(?:\.[^\]]*)?\]\n.*?(?=^\[|\Z)", "", text)
