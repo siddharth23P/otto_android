@@ -77,6 +77,18 @@ class OverlayStateTest {
         assertEquals(Working("thinking", 0, 60_000L), done.then(60_000L to started.second))
     }
 
+    /** A tap on the question card opened Otto and cleared the overlay, so nothing came back when the
+     *  agent went on working in Amazon (2026-09-16). */
+    @Test fun openingOttoToAnswerAQuestionDoesNotEndTheTurn() {
+        val asking = Hidden.then(started, 2_000L to """{"type":"ask","thread_id":"t","question":"Which one?"}""")
+        assertEquals(asking, asking.opened())
+        val working = Hidden.then(started, 2_000L to """{"type":"progress","kind":"tool","text":"Scrolling"}""")
+        assertEquals(working, working.opened())
+        val done = working.then(9_000L to """{"type":"final","text":"added"}""")
+        assertEquals(Hidden, done.opened())
+        assertEquals(Hidden, Hidden.opened())
+    }
+
     @Test fun eventsItDoesNotKnowChangeNothing() {
         val w = Hidden.then(started, 2_000L to """{"type":"progress","kind":"tool","text":"Typing"}""")
         assertEquals(w, w.then(3_000L to """{"type":"cancel_request"}""", 3_000L to """{"type":"usage","calls":3}""", 3_000L to """{"no_type":true}"""))

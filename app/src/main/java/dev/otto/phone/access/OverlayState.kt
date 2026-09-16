@@ -53,6 +53,12 @@ sealed interface OverlayState {
         }
     }
 
+    /** What is left to show once the person has opened Otto themselves. A result they have gone to read
+     *  is done with; a turn still running is only out of sight while they are in Otto, and comes back
+     *  when the agent goes on working in another app -- tapping the question card to answer must not
+     *  end the overlay for the rest of the turn (2026-09-16). */
+    fun opened(): OverlayState = if (this is Done) Hidden else this
+
     /** The done card has been offered long enough. */
     fun expired(now: Long): Boolean = this is Done && now - at >= DONE_SHOWN_MS
 
