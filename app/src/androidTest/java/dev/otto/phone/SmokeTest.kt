@@ -78,13 +78,22 @@ class SmokeTest {
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
     }
 
+    private fun shell(command: String) {
+        instrumentation.uiAutomation.executeShellCommand(command).close()
+        Thread.sleep(300)
+    }
+
     private fun death(): String? = InstrumentationRegistry.getArguments().getString("otto.death")
 
     @Test fun aScriptedTurnReadsThePhoneAsksAndAnswers() {
         assumeTrue(death() == null)
         val started = System.nanoTime()
         launch()
-        // The workflow switched the service on; it binds to this process a moment after the app starts.
+        // Starting instrumentation force-stops the app, which drops the service the workflow switched on:
+        // switch it off and on again from here, so the system binds it to this process.
+        shell("settings put secure enabled_accessibility_services null")
+        shell("settings put secure enabled_accessibility_services ${context.packageName}/${OttoAccessibilityService::class.java.name}")
+        shell("settings put secure accessibility_enabled 1")
         val deadline = System.currentTimeMillis() + 30_000
         while (OttoAccessibilityService.instance == null && System.currentTimeMillis() < deadline) Thread.sleep(250)
         assertNotNull("the accessibility service is not on", OttoAccessibilityService.instance)
