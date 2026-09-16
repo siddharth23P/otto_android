@@ -28,6 +28,8 @@ class Prefs(private val context: Context) {
         val vendorKeys = stringPreferencesKey("vendor_keys_enc")    // JSON object, encrypted
         val allowedToAct = booleanPreferencesKey("allowed_to_act")
         val theme = stringPreferencesKey("theme")                  // "system" | "studio" | "paper"
+        val turnInFlight = stringPreferencesKey("turn_in_flight")  // a session id, or Resumption.NEW_SESSION
+        val askedNotifications = booleanPreferencesKey("asked_notifications")
     }
 
     suspend fun disclosureAccepted(): Boolean = context.store.data.first()[Keys.disclosure] ?: false
@@ -44,6 +46,16 @@ class Prefs(private val context: Context) {
 
     suspend fun allowedToAct(): Boolean = context.store.data.first()[Keys.allowedToAct] ?: true
     suspend fun setAllowedToAct(value: Boolean) { context.store.edit { it[Keys.allowedToAct] = value } }
+
+    /** The session of a turn that started and has not ended (Resumption); null when none is running. */
+    suspend fun turnInFlight(): String? = context.store.data.first()[Keys.turnInFlight]
+    suspend fun setTurnInFlight(value: String?) {
+        context.store.edit { if (value == null) it.remove(Keys.turnInFlight) else it[Keys.turnInFlight] = value }
+    }
+
+    /** Whether the notification permission was asked for once already (Android 13+). */
+    suspend fun askedNotifications(): Boolean = context.store.data.first()[Keys.askedNotifications] ?: false
+    suspend fun setAskedNotifications() { context.store.edit { it[Keys.askedNotifications] = true } }
 
     /** The Settings override for Studio/Paper; "system" follows the phone's dark mode. */
     val theme: Flow<String> get() = context.store.data.map { it[Keys.theme] ?: "system" }

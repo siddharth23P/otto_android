@@ -31,6 +31,12 @@ class SettingsTextTest {
         assertEquals("unauthorized · 401 from provider", SettingsText.probe(ProbeResult(ok = false, status = "unauthorized", detail = "401 from provider")))
     }
 
+    @Test fun theKeysThatMatterSaySo() {
+        assertEquals("required — otto cannot start without this key", SettingsText.vendorNote("inception"))
+        assertEquals(true, SettingsText.vendorNote("Gemini")?.contains("phone_look"))
+        assertNull(SettingsText.vendorNote("openai"))
+    }
+
     @Test fun doctorAndRouting() {
         assertEquals(Board.Level.OK, SettingsText.level("ok"))
         assertEquals(Board.Level.BAD, SettingsText.level("error"))

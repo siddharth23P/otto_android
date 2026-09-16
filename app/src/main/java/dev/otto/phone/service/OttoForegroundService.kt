@@ -12,6 +12,7 @@ import android.graphics.drawable.Icon
 import android.os.IBinder
 import android.os.PowerManager
 import dev.otto.phone.transport.EventBus
+import dev.otto.phone.ui.MainActivity
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -37,6 +38,10 @@ class OttoForegroundService : Service() {
             .setContentText(intent?.getStringExtra(EXTRA_TEXT) ?: "")
             .setSmallIcon(android.R.drawable.ic_menu_compass)
             .setOngoing(true)
+            // A tap brings back the chat the turn is running in.
+            .setContentIntent(PendingIntent.getActivity(this, 0,
+                Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
             .addAction(Notification.Action.Builder(
                 Icon.createWithResource(this, android.R.drawable.ic_menu_close_clear_cancel), "Stop",
                 PendingIntent.getService(this, 0, Intent(this, OttoForegroundService::class.java).setAction(ACTION_CANCEL),

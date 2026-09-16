@@ -58,6 +58,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.otto.phone.protocol.Op
 import dev.otto.phone.state.ChatBlock
 import dev.otto.phone.state.Format
+import dev.otto.phone.state.RestrictedSettings
 import dev.otto.phone.state.Route
 import dev.otto.phone.ui.Link
 import dev.otto.phone.ui.Models
@@ -212,6 +213,11 @@ private fun ChatBanners(m: Models, app: dev.otto.phone.ui.AppState) {
         if (!app.serviceEnabled && app.link == Link.Ready) Banner(
             "The accessibility service is off; Otto can answer but not act.",
             action = "Turn on", onAction = { m.app.openAccessibilitySettings() },
+        )
+        if (app.restrictedHint) Banner(
+            RestrictedSettings.TEXT, edge = c.warn,
+            action = "App info", onAction = { m.app.openAppInfo() },
+            secondAction = "Accessibility", onSecondAction = { m.app.openAccessibilitySettings() },
         )
     }
 }
