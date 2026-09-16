@@ -1,17 +1,26 @@
-# Phase 0 of the embedded runtime: cross-build the Android wheels otto needs
-# that PyPI does not carry (pydantic-core, jiter, orjson, ormsgpack, tiktoken,
-# uuid-utils, zstandard) plus the pure-Python otto wheel from the pinned ref.
-# One job per package so a failure names its package; the summary table is the
-# record. Runs nightly and by hand; commit the artifact into wheels/ when green.
+# The Android wheels otto needs that PyPI does not carry (pydantic-core, jiter,
+# orjson, ormsgpack, tiktoken, uuid-utils, zstandard). otto itself is pure Python
+# and comes from PyPI at build time. One job per package so a failure
+# names its package. A green run on a tag ref publishes the whole set as a
+# GitHub Release: the binaries stay out of the repository, and wheels/wheels.json
+# names the release and the digest of every file the build downloads.
 name: wheels
 
 on:
   workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish the set as a GitHub Release"
+        type: boolean
+        default: false
+      tag:
+        description: "Release tag to publish or update"
+        default: wheels-cp313-otto-0.1.2
   schedule:
     - cron: "17 3 * * *"
   push:
     branches: [main]
-    paths: [".github/workflows/wheels.yml", "app/src/main/python/requirements.txt", "requirements-otto-git.txt"]
+    paths: [".github/workflows/wheels.yml", "app/src/main/python/requirements.txt"]
 
 permissions:
   contents: read
@@ -54,7 +63,7 @@ jobs:
       - name: Resolve the version otto's lock needs
         id: version
         run: |
-          pip install -r requirements-otto-git.txt 2>/dev/null || pip install -r app/src/main/python/requirements.txt
+          pip install -r app/src/main/python/requirements.txt
           python - <<'PY' >> "$GITHUB_OUTPUT"
           import importlib.metadata as m
           name = "${{ matrix.package }}"
@@ -102,26 +111,58 @@ jobs:
           name: wheels-${{ matrix.package }}
           path: wheelhouse/*.whl
 
-  otto-wheel:
+  publish:
+    # The wheel set as one checksummed Release, which app/build.gradle.kts downloads by the digests in
+    # wheels/wheels.json. Only on demand: a nightly run answers "do they still build", not "ship this".
+    needs: [compiled]
+    if: github.event_name == 'workflow_dispatch' && inputs.publish
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/download-artifact@v8
         with:
-          python-version: "3.13"
-      - name: Build the pure-Python otto wheel from the pinned ref
+          path: all
+      - name: Gather the set and write its manifest
         run: |
-          pip install build
-          ref=$(sed -n 's/.*@\([0-9a-f]\{7,40\}\).*/\1/p' requirements-otto-git.txt | head -1)
-          git clone https://github.com/siddharth23P/otto_agent src && cd src && git checkout "${ref:-main}"
-          python -m build --wheel --outdir ../wheelhouse
+          mkdir -p wheelhouse
+          find all -name '*.whl' -exec cp {} wheelhouse/ \;
+          ls -l wheelhouse
+          python - <<'PY' > wheels/wheels.json
+          import hashlib, json, os, pathlib
+          files = sorted(pathlib.Path("wheelhouse").glob("*.whl"))
+          print(json.dumps({
+              "comment": "The Android wheel set the embedded runtime installs. Built by "
+                         ".github/workflows/wheels.yml and published as a GitHub Release; the build downloads "
+                         "what it needs into app/build/wheels and checks every file against these digests. "
+                         "The .whl files themselves are never committed.",
+              "repository": os.environ["GITHUB_REPOSITORY"],
+              "tag": os.environ["TAG"],
+              "python": "cp313",
+              "abis": ["arm64_v8a", "x86_64"],
+              "files": [{"name": p.name, "size": p.stat().st_size,
+                         "sha256": hashlib.sha256(p.read_bytes()).hexdigest()} for p in files],
+          }, indent=1))
+          PY
+          cat wheels/wheels.json
+        env:
+          TAG: ${{ inputs.tag }}
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          gh release view "$TAG" >/dev/null 2>&1 \
+            && gh release upload "$TAG" wheelhouse/*.whl --clobber \
+            || gh release create "$TAG" wheelhouse/*.whl --title "$TAG" --notes "Android wheels for CPython 3.13 (arm64_v8a, x86_64), built by wheels.yml. app/build.gradle.kts downloads these by the digests in wheels/wheels.json."
       - uses: actions/upload-artifact@v7
         with:
-          name: wheels-otto
-          path: wheelhouse/*.whl
+          name: wheels-manifest
+          path: wheels/wheels.json
 
   summary:
-    needs: [compiled, otto-wheel]
+    needs: [compiled]
     if: always()
     runs-on: ubuntu-latest
     steps:

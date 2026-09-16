@@ -22,15 +22,17 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - name: Install otto (the git pin until 0.2.0 is on PyPI) and pytest
+      - name: Install the pinned otto and pytest
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements-otto-git.txt ]; then pip install -r requirements-otto-git.txt; else pip install -r app/src/main/python/requirements.txt; fi
+          pip install -r app/src/main/python/requirements.txt
           pip install pytest
       - name: Bridge tests (fake PyBridge, fake pipeline, no keys)
         run: pytest -q app/src/main/python/tests
       - name: Vendored guard rules equal otto's
         run: python -c "from pathlib import Path; from agent.phone import guard; assert Path('app/src/main/assets/guard_rules.json').read_text(encoding='utf-8') == guard.rules_text(), 'copy agent/phone/assets/guard_rules.json from otto'"
+      - name: Vendored page corpus equals otto's
+        run: python -c "from pathlib import Path; from importlib import resources; assert Path('app/src/test/resources/guard_pages.json').read_text(encoding='utf-8') == resources.files('agent.phone').joinpath('assets/guard_pages.json').read_text(encoding='utf-8'), 'copy agent/phone/assets/guard_pages.json from otto'"
 
   android:
     runs-on: ubuntu-latest

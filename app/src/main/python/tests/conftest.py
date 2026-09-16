@@ -81,6 +81,63 @@ class FakePyBridge:
         return self._ok({"state": "installing", "after": SCREEN})
 
 
+@pytest.fixture(autouse=True)
+def _no_phone_decision(monkeypatch):
+    """A turn handed the phone tools asks a model first whether it needs the
+    phone (agent/embed.py DECIDE_PHONE); with placeholder keys that call
+    fails. Off here, as otto's own tests do; a test that says phone= still
+    gets its phase event."""
+    try:
+        from agent import embed
+    except ImportError:
+        return
+    if hasattr(embed, "DECIDE_PHONE"):
+        monkeypatch.setattr(embed, "DECIDE_PHONE", False)
+
+
+@pytest.fixture
+def routes_file(tmp_path):
+    """routes.json in tmp_path, as otto's tests/test_serve.py: the live
+    table is re-applied from the usual file afterwards."""
+    from agent.router.reload import reload_everything
+
+    path = tmp_path / "routes.json"
+    before = os.environ.get("OTTO_ROUTES")
+    os.environ["OTTO_ROUTES"] = str(path)
+    try:
+        yield path
+    finally:
+        if before is None:
+            os.environ.pop("OTTO_ROUTES", None)
+        else:
+            os.environ["OTTO_ROUTES"] = before
+        reload_everything()
+
+
+AMAZON = "in.amazon.mShop.android.shopping"
+
+
+@pytest.fixture
+def lesson_bank(tmp_path, monkeypatch):
+    """A bank in tmp_path seeded straight into the store: one workspace
+    lesson, one phone lesson, one Amazon note. Returns kind -> ids."""
+    from agent.memory import lessons as L
+    from agent.memory.store import MemoryStore
+
+    monkeypatch.setattr(L, "DB_DIR", tmp_path / "bank")
+    store = MemoryStore(L.bank_path())
+    seeded: dict[str, list[str]] = {}
+    for kind, lesson in ((L.KIND, L.Lesson("a build is slow", "cache the wheel", "failed")),
+                         (L.PHONE_KIND, L.Lesson("a list will not scroll", "name it by its number")),
+                         (L.APP_NOTE_PREFIX + AMAZON, L.Lesson("the results page", "sponsored items are marked ad"))):
+        with L.bind_kind(kind):
+            text = lesson.rendered()
+            store.add_chunk(kind, L._hash(text), text)
+            seeded.setdefault(kind, []).append(L._hash(text))
+    store.close()
+    return seeded
+
+
 @pytest.fixture
 def bridge(tmp_path, monkeypatch):
     from otto_app import backend, bootstrap, entry

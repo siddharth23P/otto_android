@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Studio's bg, so a dark phone does not flash paper before the first frame. -->
+    <style name="Theme.Otto" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#14110E</item>
+    </style>
+</resources>

@@ -9,6 +9,21 @@ def test_the_pinned_otto_is_within_range():
         assert feature in info.features, feature
 
 
+def test_the_serve_operations_are_detected_by_what_embed_has(monkeypatch):
+    from agent import embed
+
+    if not hasattr(embed, "doctor_report"):
+        import pytest
+
+        pytest.skip("this otto predates the serve operations")
+    for feature in ("phone_decision", *compat.SERVE_FEATURES):
+        assert compat.has(feature), feature
+        assert feature in compat.probe().features, feature
+    monkeypatch.delattr(embed, "delete_note")
+    assert not compat.has("notes") and compat.has("lessons")
+    assert not compat.has("no_such_feature")
+
+
 def test_a_future_api_is_refused_loudly(monkeypatch):
     from agent import embed
 
