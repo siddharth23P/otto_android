@@ -14,6 +14,7 @@ import dev.otto.phone.protocol.SetupStatus
 import dev.otto.phone.state.BackStack
 import dev.otto.phone.state.Route
 import dev.otto.phone.state.problem
+import dev.otto.phone.log.OttoLog
 import dev.otto.phone.transport.EventBus
 import dev.otto.phone.transport.ServeProtocol
 import dev.otto.phone.ui.theme.ThemeChoice
@@ -119,15 +120,18 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun connect() = viewModelScope.launch {
         _state.update { it.copy(link = Link.Connecting) }
+        OttoLog.i(LINK, "connecting")
         val (chosen, hello) = connection.connect()
         val name = chosen.name
         if (hello !is Reply.Ok) {
             val message = if (name == "embedded" && hello is Reply.Err && hello.code == "unavailable")
                 "the embedded runtime is not in this build — pair with otto serve in Settings."
             else hello.problem("couldn't reach otto") ?: ""
+            OttoLog.w(LINK, "$name failed: $message")
             _state.update { it.copy(transportName = name, link = Link.Failed(message), status = null, capabilities = chosen.capabilities) }
             return@launch
         }
+        OttoLog.i(LINK, "$name connected: otto ${hello.value.ottoVersion}, protocol ${hello.value.protocolVersion}")
         applyHello(name, hello.value, chosen.capabilities)
         refreshStatus()
     }
@@ -138,6 +142,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         when (val status = t.setupStatus()) {
             is Reply.Ok -> _state.update {
                 val ready = status.value.ready
+                OttoLog.i(LINK, if (ready) "ready" else "needs a key")
                 it.copy(status = status.value, link = if (ready) Link.Ready else Link.NeedsKey,
                     epoch = if (ready && it.link != Link.Ready) it.epoch + 1 else it.epoch,
                     ottoVersion = status.value.version.otto.ifBlank { it.ottoVersion },
@@ -145,7 +150,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             }
             // An otto serve from before the setup op: keys live on that machine, and a hello is ready enough.
             Reply.Unsupported -> _state.update { it.copy(status = null, link = Link.Ready, epoch = if (it.link != Link.Ready) it.epoch + 1 else it.epoch) }
-            is Reply.Err -> _state.update { it.copy(link = Link.Failed(status.message.ifBlank { "otto couldn't say whether it is ready" })) }
+            is Reply.Err -> _state.update {
+                OttoLog.w(LINK, "status failed: ${status.code}: ${status.message}")
+                it.copy(link = Link.Failed(status.message.ifBlank { "otto couldn't say whether it is ready" }))
+            }
         }
     }
 
@@ -175,3 +183,5 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         const val PAIRING_HINT = "paste the ws://host:port/#token line otto serve printed"
     }
 }
+
+private const val LINK = "OttoLink"

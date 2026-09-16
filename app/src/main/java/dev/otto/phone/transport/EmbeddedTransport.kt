@@ -4,6 +4,7 @@ import android.content.Context
 import com.chaquo.python.PyObject
 import com.chaquo.python.Python
 import com.chaquo.python.android.AndroidPlatform
+import dev.otto.phone.log.OttoLog
 import dev.otto.phone.BuildConfig
 import dev.otto.phone.data.Prefs
 import dev.otto.phone.protocol.Ack
@@ -56,7 +57,21 @@ class EmbeddedTransport(private val context: Context, private val prefs: Prefs) 
 
     private fun entry(): PyObject = Python.getInstance().getModule("otto_app.entry")
 
-    private suspend fun <T> call(deserializer: DeserializationStrategy<T>, fn: String, vararg args: Any): Reply<T> = withContext(Dispatchers.IO) {
+    /** [callRaw], with each call's outcome and time in the log (OttoTransport). Arguments are not
+     *  logged: one of them is a key's value. */
+    private suspend fun <T> call(deserializer: DeserializationStrategy<T>, fn: String, vararg args: Any): Reply<T> {
+        val started = System.nanoTime()
+        val reply = callRaw(deserializer, fn, *args)
+        val ms = (System.nanoTime() - started) / 1_000_000
+        when (reply) {
+            is Reply.Ok -> OttoLog.i(TAG, "$fn ok [$ms ms]")
+            is Reply.Err -> OttoLog.w(TAG, "$fn ${reply.code}: ${reply.message} [$ms ms]")
+            else -> OttoLog.i(TAG, "$fn unsupported by this otto")
+        }
+        return reply
+    }
+
+    private suspend fun <T> callRaw(deserializer: DeserializationStrategy<T>, fn: String, vararg args: Any): Reply<T> = withContext(Dispatchers.IO) {
         if (!BuildConfig.EMBEDDED_PYTHON) return@withContext Reply.Err("unavailable", "this build has no embedded runtime")
         if (!Python.isStarted()) return@withContext Reply.Err("unavailable", "the embedded runtime has not started")
         val module = entry()
@@ -68,13 +83,23 @@ class EmbeddedTransport(private val context: Context, private val prefs: Prefs) 
         }.getOrElse { Reply.Err("failed", "${it.javaClass.simpleName}: ${it.message}") }
     }
 
-    override suspend fun start(): Reply<Hello> = withContext(Dispatchers.IO) {
+    override suspend fun start(): Reply<Hello> = startRaw().also { hello ->
+        when (hello) {
+            is Reply.Ok -> OttoLog.i(TAG, "embedded runtime started: otto ${hello.value.ottoVersion}, api ${hello.value.apiVersion}, features ${hello.value.features}")
+            is Reply.Err -> OttoLog.w(TAG, "embedded runtime did not start: ${hello.code}: ${hello.message}")
+            else -> OttoLog.w(TAG, "embedded runtime answered start with $hello")
+        }
+    }
+
+    private suspend fun startRaw(): Reply<Hello> = withContext(Dispatchers.IO) {
         if (!BuildConfig.EMBEDDED_PYTHON) return@withContext Reply.Err("unavailable", "this build has no embedded runtime")
         runCatching {
             if (!Python.isStarted()) Python.start(AndroidPlatform(context))
             val home = File(context.filesDir, "otto").absolutePath
             val keys = prefs.vendorKeysJson(prefs.vendorKeys())
-            val configured = Protocol.parse(Python.getInstance().getModule("otto_app.bootstrap").callAttr("configure", home, keys).toString())
+            // BuildConfig.DEBUG keeps the runtime's DEBUG logs, the HTTP transport's among them.
+            val configured = Protocol.parse(Python.getInstance().getModule("otto_app.bootstrap")
+                .callAttr("configure", home, keys, BuildConfig.DEBUG).toString())
                 ?: return@withContext Reply.Err("malformed", "configure did not return a JSON object")
             Protocol.errorOf(configured)?.let { return@withContext it }
             val features = featuresPresent()
@@ -151,6 +176,8 @@ class EmbeddedTransport(private val context: Context, private val prefs: Prefs) 
     override fun close() = Unit
 
     companion object {
+        private const val TAG = "OttoTransport"
+
         /** The entry.py function behind each op beyond protocol 1 — the names C8 implements. */
         val FUNCTIONS: Map<Op, String> = mapOf(
             Op.SESSIONS_CLOSE to "close_session",

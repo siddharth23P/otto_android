@@ -17,15 +17,20 @@ reads its absence as "needs a newer otto".
 """
 from __future__ import annotations
 
+import functools
+import inspect
 import json
+import logging
 import re
 import threading
+import time
 from typing import Any
 
 from otto_app import backend as _backend
 from otto_app import bootstrap, compat
 
 _runtime = None
+_events_log = logging.getLogger("otto_app.events")
 _handles: dict[str, Any] = {}
 _turns: dict[str, threading.Thread] = {}
 _lock = threading.Lock()
@@ -49,6 +54,13 @@ def _err(message: str, code: str = "failed") -> str:
 
 
 def _emit(event: dict) -> None:
+    kind = event.get("type")
+    if kind == "error":
+        _events_log.warning("turn error %s: %s", event.get("code"), event.get("message"))
+    elif kind in ("started", "final", "ask"):
+        _events_log.info("turn %s", kind)
+    else:
+        _events_log.debug("%s %s: %s", kind, event.get("kind", ""), str(event.get("text", ""))[:160])
     payload = json.dumps(event)
     try:
         _backend.bridge().onEvent(payload)
@@ -352,7 +364,11 @@ def _start_turn(session_id: str, text: str, phone: str | None) -> str:
 
     def run() -> None:
         _emit(started)
-        handle.run(text, **kwargs)
+        try:
+            handle.run(text, **kwargs)
+        except Exception:
+            _events_log.exception("the turn in %s stopped with an error", session_id)
+            raise
 
     thread = threading.Thread(target=run, name=f"otto-turn-{session_id[:8]}", daemon=True)
     with _lock:
@@ -542,3 +558,62 @@ def missing(has=None) -> list[str]:
 
 for _name in missing():
     globals().pop(_name, None)
+
+
+# --------------------------------------------------------------------------
+# every call, logged
+# --------------------------------------------------------------------------
+
+_log = logging.getLogger("otto_app.entry")
+#: Arguments never written to a log, by function and position: a key's value, a whole session.
+_HIDDEN: dict[str, set[int]] = {"set_key": {1}, "import_session": {0}}
+MAX_LOGGED_ARG = 80
+
+
+def _shown(name: str, args: tuple) -> str:
+    hidden = _HIDDEN.get(name, set())
+    parts = []
+    for position, value in enumerate(args):
+        if position in hidden:
+            parts.append("<hidden>")
+        elif isinstance(value, str):
+            cut = value[:MAX_LOGGED_ARG] + ("…" if len(value) > MAX_LOGGED_ARG else "")
+            parts.append(repr(cut))
+        else:
+            parts.append(repr(value)[:MAX_LOGGED_ARG])
+    return ", ".join(parts)
+
+
+def _outcome(result: Any) -> tuple[int, str]:
+    try:
+        data = json.loads(result)
+    except (TypeError, ValueError):
+        return logging.INFO, "returned"
+    if not isinstance(data, dict) or data.get("ok"):
+        return logging.INFO, "ok"
+    error = data.get("error") or {}
+    return logging.WARNING, f"{error.get('code', 'failed')}: {error.get('message', '')}"
+
+
+def _logged(fn):
+    """`fn`, with each call, its outcome and its time written to the log (otto_app/logs.py)."""
+    @functools.wraps(fn)
+    def run(*args, **kwargs):
+        started = time.monotonic()
+        try:
+            result = fn(*args, **kwargs)
+        except Exception:
+            _log.exception("%s(%s) raised after %.0f ms", fn.__name__, _shown(fn.__name__, args),
+                           (time.monotonic() - started) * 1000)
+            raise
+        level, said = _outcome(result)
+        _log.log(level, "%s(%s) -> %s [%.0f ms]", fn.__name__, _shown(fn.__name__, args), said,
+                 (time.monotonic() - started) * 1000)
+        return result
+    return run
+
+
+for _name, _fn in list(globals().items()):
+    if (not _name.startswith("_") and _name != "missing" and inspect.isfunction(_fn)
+            and _fn.__module__ == __name__):
+        globals()[_name] = _logged(_fn)

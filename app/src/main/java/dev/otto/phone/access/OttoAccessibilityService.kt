@@ -31,6 +31,7 @@ import dev.otto.phone.device.PlayStore
 import dev.otto.phone.device.SettingsPages
 import dev.otto.phone.guard.GuardRules
 import dev.otto.phone.guard.PolicyGuard
+import dev.otto.phone.log.OttoLog
 import dev.otto.phone.transport.Answers
 import dev.otto.phone.transport.EventBus
 import java.io.ByteArrayOutputStream
@@ -83,6 +84,8 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
     override fun onServiceConnected() {
         super.onServiceConnected()
         guard = PolicyGuard(GuardRules.parse(assets.open("guard_rules.json").bufferedReader().readText()))
+        guard.onNote = { OttoLog.i("OttoGuard", it) }
+        OttoLog.i("OttoDevice", "accessibility service connected")
         catalog = AppCatalog(this)
         instance = this
         PyBridge.ops = this
