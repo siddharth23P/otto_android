@@ -120,6 +120,19 @@ jobs:
                   p.write_text(cleaned)
                   print("dropped the sdist's [tool.cibuildwheel] tables")
           PY
+          # numpy 2.5.3's meson reads `longdouble_format` from a cross-file property and, finding
+          # none, runs a test binary to detect it -- which no cross build can do
+          # (_core/meson.build:507, "Can not run test applications in this cross environment").
+          # numpy's own Android branch hard-codes IEEE_QUAD_LE for 64-bit Android, but it landed
+          # upstream after 2.5.3 shipped, so the property is supplied here instead, for the two
+          # 64-bit ABIs this builds. numpy's cross-compilation docs name this exact property.
+          if [ "${{ matrix.package }}" = "numpy" ]; then
+            cat > "$PWD/android-cross.ini" <<'INI'
+          [properties]
+          longdouble_format = 'IEEE_QUAD_LE'
+          INI
+            export CIBW_CONFIG_SETTINGS_ANDROID="$CIBW_CONFIG_SETTINGS_ANDROID setup-args=--cross-file=$PWD/android-cross.ini"
+          fi
           cd src && cibuildwheel --output-dir ../wheelhouse
       - name: Check 16 KB LOAD alignment on every native library
         run: |
