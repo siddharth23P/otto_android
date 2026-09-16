@@ -78,17 +78,31 @@ jobs:
           pip download --no-binary :all: --no-deps -d sdist "${{ matrix.package }}==${{ steps.version.outputs.version }}"
           mkdir -p src && tar -xzf sdist/*.tar.gz -C src --strip-components=1
       - name: Build with cibuildwheel for Android
+        env:
+          # numpy keeps its Android build settings in its own [tool.cibuildwheel.android]
+          # tables, so they are kept (see the strip step) -- but its CI builds against an
+          # OpenBLAS built for Android, which we do not carry. numpy's internal fallback
+          # routines are allowed instead: otto uses numpy for dot products and argsort over
+          # a few hundred floats (agent/memory), where a slower BLAS costs nothing.
+          CIBW_CONFIG_SETTINGS_ANDROID: ${{ matrix.package == 'numpy' && 'setup-args=-Dallow-noblas=true setup-args=-Duse-ilp64=false build-dir=build' || '' }}
         run: |
           pip install cibuildwheel
           # An sdist's own [tool.cibuildwheel] is written for the version its
           # maintainers use: zstandard names the enable group
           # "cpython-freethreading", which cibuildwheel 4 no longer knows and
-          # refuses to parse. Our settings all come from the environment, so
-          # drop the sdist's table and build from ours alone.
-          python - <<'PY'
-          import re, pathlib
+          # refuses to parse. Dropping the tables is the fix for that one, and
+          # the wrong move for numpy, whose Android settings live in them --
+          # without them meson reaches a check it can only answer by running an
+          # Android binary on the runner (_core/meson.build, "Can not run test
+          # applications in this cross environment", 2026-09-16).
+          python - "${{ matrix.package }}" <<'PY'
+          import re, sys, pathlib
+          keep = {"numpy"}
+          package = sys.argv[1]
           p = pathlib.Path("src/pyproject.toml")
-          if p.exists():
+          if package in keep:
+              print(f"keeping {package}'s own [tool.cibuildwheel] tables")
+          elif p.exists():
               text = p.read_text()
               cleaned = re.sub(r"(?ms)^\[tool\.cibuildwheel(?:\.[^\]]*)?\]\n.*?(?=^\[|\Z)", "", text)
               if cleaned != text:
