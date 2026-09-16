@@ -44,6 +44,7 @@ def configure(home: str, keys_json: str = "{}", debug: bool = False) -> str:
     keys = json.loads(keys_json or "{}")
     present = sorted(name for name, value in keys.items() if value)
     log.info("configuring otto at %s; keys given: %s", home, ", ".join(present) or "none")
+    trust_store()
     from agent import embed
 
     try:
@@ -53,14 +54,36 @@ def configure(home: str, keys_json: str = "{}", debug: bool = False) -> str:
         return json.dumps({"ok": False, "available": True, "error": str(exc)})
     _state.update(configured=True, home=home)
     os.environ.setdefault("OTTO_NO_ANIMATION", "1")
-    try:
-        from importlib.metadata import version
+    from otto_app import compat
 
-        otto = version("otto-cli-agent")
+    otto, api = compat.installed_version(), int(getattr(embed, "API_VERSION", 0))
+    log.info("otto %s (embedding api %s) ready on Python %s", otto, api, sys.version.split()[0])
+    return json.dumps({"ok": True, "available": True, "home": home, "otto": otto, "api": api})
+
+
+def trust_store() -> str:
+    """Point TLS at certifi's CA bundle unless something already chose one; returns the bundle used.
+
+    The vendor SDKs' HTTP client (httpx2) trusts the system store through `truststore`, which has no
+    Android backend, so Python fell back to OpenSSL's default CA path -- empty on Android -- and every
+    Anthropic and OpenAI call failed with CERTIFICATE_VERIFY_FAILED, shown as "Connection error."
+    (2026-09-16). httpx2, requests and urllib3 all honour SSL_CERT_FILE."""
+    chosen = os.environ.get("SSL_CERT_FILE", "")
+    if chosen and os.path.isfile(chosen):
+        return chosen
+    try:
+        import certifi
+
+        bundle = certifi.where()
     except Exception:
-        otto = "?"
-    log.info("otto %s ready on Python %s", otto, sys.version.split()[0])
-    return json.dumps({"ok": True, "available": True, "home": home})
+        log.error("no CA bundle: certifi is missing, so TLS connections will fail", exc_info=True)
+        return ""
+    if not os.path.isfile(bundle):
+        log.error("certifi's CA bundle is not a file (%s), so TLS connections will fail", bundle)
+        return ""
+    os.environ["SSL_CERT_FILE"] = bundle
+    log.info("TLS trusts %s", bundle)
+    return bundle
 
 
 def is_configured() -> bool:

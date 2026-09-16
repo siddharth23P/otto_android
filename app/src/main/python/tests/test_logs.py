@@ -71,3 +71,19 @@ def test_the_entry_functions_kotlin_calls_are_wrapped_and_keep_their_signatures(
     assert "phone" in inspect.signature(entry.start_turn).parameters or \
         list(inspect.signature(entry.start_turn).parameters) == ["session_id", "text"]
     assert not hasattr(entry.missing, "__wrapped__")
+
+
+def test_tls_trusts_certifi_unless_a_bundle_is_already_chosen(monkeypatch, tmp_path):
+    import certifi
+
+    from otto_app import bootstrap
+
+    monkeypatch.delenv("SSL_CERT_FILE", raising=False)
+    assert bootstrap.trust_store() == certifi.where()
+    import os
+
+    assert os.environ["SSL_CERT_FILE"] == certifi.where()
+    mine = tmp_path / "ca.pem"
+    mine.write_text("x")
+    monkeypatch.setenv("SSL_CERT_FILE", str(mine))
+    assert bootstrap.trust_store() == str(mine)
