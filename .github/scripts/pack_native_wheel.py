@@ -34,7 +34,8 @@ def main(name: str, abi: str, api: str, build: str, root: str, source: str, outd
     info = f"{stem}-{version}.dist-info"
     files: dict[str, bytes] = {}
     base = pathlib.Path(root)
-    for path in sorted((base / "chaquopy").rglob("*")):
+    # Only what Chaquopy's wheels hold: headers and libraries (bin/ and share/ are build leftovers).
+    for path in sorted(p for d in ("include", "lib") for p in (base / "chaquopy" / d).rglob("*")):
         if path.is_file() and not path.is_symlink():
             files[path.relative_to(base).as_posix()] = path.read_bytes()
     if not any(n.endswith(".so") for n in files):

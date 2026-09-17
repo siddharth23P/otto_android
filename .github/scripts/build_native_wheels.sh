@@ -66,7 +66,8 @@ for abi in arm64_v8a x86_64; do
                     plain_names
                     make -j"$(nproc)"
                     make install
-                    rm -rf "$prefix"/{bin,share} "$prefix"/lib/{*.a,*.la,*.sh}
+                    # bin/ stays until the end: libxslt's configure asks xml2-config where libxml2 is.
+                    rm -rf "$prefix"/lib/{*.a,*.la,*.sh}
                     ;;
                 libxslt)
                     xml="$work/prefix/libxml2-$abi/chaquopy"
@@ -76,7 +77,7 @@ for abi in arm64_v8a x86_64; do
                     plain_names
                     make -j"$(nproc)"
                     make install
-                    rm -rf "$prefix"/{bin,share} "$prefix"/lib/{*.a,*.la,*.sh}
+                    rm -rf "$prefix"/lib/{*.a,*.la,*.sh}
                     ;;
                 freetype)
                     ./configure --host=$host --prefix="$prefix" --without-harfbuzz --without-png \
@@ -86,7 +87,7 @@ for abi in arm64_v8a x86_64; do
                     make install
                     mv "$prefix"/include/freetype2/* "$prefix"/include/
                     rmdir "$prefix"/include/freetype2
-                    rm -rf "$prefix"/share "$prefix"/lib/*.a "$prefix"/lib/*.la
+                    rm -rf "$prefix"/lib/*.a "$prefix"/lib/*.la
                     ;;
             esac
             # Only the real libraries: no symlinks, no leftover versioned names.
