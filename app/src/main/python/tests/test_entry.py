@@ -26,7 +26,7 @@ def test_bootstrap_and_setup_status(bridge, tmp_path, monkeypatch):
     # whatever the process had (otto 0.1.2's configure()).
     status = json.loads(bootstrap.configure(str(tmp_path / "otto"), json.dumps({**KEYS, "OPENAI_API_KEY": "sk-keystore1234"})))
     # The transport's hello reads otto's version and embedding API from here.
-    assert status == {"ok": True, "available": True, "home": str(tmp_path / "otto"), "otto": "0.1.2", "api": 1}
+    assert status == {"ok": True, "available": True, "home": str(tmp_path / "otto"), "otto": "0.1.3", "api": 1}
     assert (tmp_path / "otto").is_dir()
     info = json.loads(entry.setup_status())
     assert info["ok"] and info["available"] and info["ready"]

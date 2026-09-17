@@ -14,7 +14,7 @@ One app, two ways to reach the agent, behind one seam (`transport/`):
 
 | mode | what it is | status |
 | --- | --- | --- |
-| **embedded** | otto 0.1.2 from PyPI inside the APK (Chaquopy, Python 3.13) | the release build; the compiled wheels PyPI lacks for Android come from the `wheels-cp313-otto-0.1.2` release (`wheels/`) |
+| **embedded** | otto 0.1.3 from PyPI inside the APK (Chaquopy, Python 3.13) | the release build; the compiled wheels PyPI lacks for Android come from the `wheels-cp313-otto-0.1.2` release (`wheels/`) |
 | **remote serve** | `otto serve` on a computer | pair from Settings; used while developing the app |
 
 A Linux userland on the phone (proot) was the fallback if the embedded runtime
