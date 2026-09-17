@@ -2,7 +2,10 @@ package dev.otto.phone
 
 import android.Manifest
 import android.app.UiAutomation
+import android.content.ContentValues
 import android.content.Intent
+import android.net.Uri
+import android.provider.MediaStore
 import android.os.Build
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.hasTestTag
@@ -124,6 +127,48 @@ class SmokeTest {
         android.util.Log.i("OttoSmoke", "budget pipeline_import_s=$imported turn_s=$turnSeconds pss_mb=$pssMb")
         assertTrue("importing the pipeline took $imported s (budget $IMPORT_BUDGET_S)", imported in 0.0..IMPORT_BUDGET_S)
         assertTrue("the app holds $pssMb MB after a turn (budget $PSS_BUDGET_MB)", pssMb <= PSS_BUDGET_MB)
+    }
+
+    /** A file shared into Otto is read on the phone and goes with the message (PDF through pypdf). */
+    @Test fun sharedFilesAreReadAndGoWithTheMessage() {
+        assumeTrue(death() == null)
+        val uris = arrayListOf(
+            download("otto-smoke-note.txt", "text/plain", "Buy oat milk and two lemons".toByteArray()),
+            download("otto-smoke-report.pdf", "application/pdf", Pdf.bytes(listOf("Quarterly revenue grew nine percent"))),
+        )
+        scenario = ActivityScenario.launch(Intent(context, MainActivity::class.java)
+            .setAction(Intent.ACTION_SEND_MULTIPLE).setType("*/*")
+            .putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
+        runCatching {
+            compose.waitUntilAtLeastOneExists(hasTestTag("disclosure_accept"), 5_000)
+            compose.onNodeWithTag("disclosure_accept").performClick()
+        }
+        compose.waitUntilAtLeastOneExists(hasTestTag("chat_input"), 60_000)
+        compose.waitUntil(30_000) { compose.onAllNodes(hasTestTag("attachment_row")).fetchSemanticsNodes().size == 2 }
+        // Read: the rows say the PDF's page count once pypdf has been through it.
+        compose.waitUntilAtLeastOneExists(hasText("1 page", substring = true), 60_000)
+        send("what do these say")
+        Thread.sleep(3_000)
+        bringOttoBack()
+        compose.waitUntilAtLeastOneExists(hasTestTag("ask_choice_0"), 60_000)
+        compose.onNodeWithTag("ask_choice_0").performClick()
+        compose.waitUntilAtLeastOneExists(hasText("otto-smoke-note.txt: Buy oat milk", substring = true), 60_000)
+        compose.waitUntilAtLeastOneExists(hasText("otto-smoke-report.pdf: [page 1] Quarterly revenue grew", substring = true), 5_000)
+        // The sent message shows its files as chips.
+        compose.waitUntil(5_000) { compose.onAllNodes(hasTestTag("message_file")).fetchSemanticsNodes().size >= 2 }
+    }
+
+    /** A file in Downloads (MediaStore, API 29+), as a file manager would share it. */
+    private fun download(name: String, mime: String, data: ByteArray): Uri {
+        val resolver = context.contentResolver
+        resolver.delete(MediaStore.Downloads.EXTERNAL_CONTENT_URI, "${MediaStore.MediaColumns.DISPLAY_NAME}=?", arrayOf(name))
+        val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+            put(MediaStore.MediaColumns.MIME_TYPE, mime)
+        }) ?: error("MediaStore refused $name")
+        resolver.openOutputStream(uri)!!.use { it.write(data) }
+        return uri
     }
 
     @Test fun aSlowTurnStartsAndIsLeftRunning() {

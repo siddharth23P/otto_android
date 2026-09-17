@@ -68,6 +68,7 @@ import com.mikepenz.markdown.m3.markdownTypography
 import dev.otto.phone.state.AskUi
 import dev.otto.phone.state.Board
 import dev.otto.phone.state.ChatBlock
+import dev.otto.phone.state.FileKind
 import dev.otto.phone.state.Format
 import dev.otto.phone.state.TurnUi
 import dev.otto.phone.ui.components.ButtonKind
@@ -137,7 +138,17 @@ fun UserMessage(block: ChatBlock.User, actions: MessageActions) {
             MetaRow(ChatText.meta(block))
             Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
                 Box(Modifier.width(1.dp).fillMaxHeight().background(c.line))
-                Text(block.text, style = OttoTheme.type.user, modifier = Modifier.padding(start = 14.dp))
+                Column(Modifier.padding(start = 14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    block.files.forEach { f ->
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.testTag("message_file").semantics(mergeDescendants = true) { }) {
+                            Icon(if (f.kind == FileKind.IMAGE) OttoIcons.Image else OttoIcons.FileText, contentDescription = null,
+                                tint = c.dim, modifier = Modifier.size(14.dp))
+                            Text("${f.name} · ${f.kind.label}", style = OttoTheme.type.meta.copy(color = c.dim), maxLines = 1)
+                        }
+                    }
+                    if (block.text.isNotBlank()) Text(block.text, style = OttoTheme.type.user)
+                }
             }
         }
     }

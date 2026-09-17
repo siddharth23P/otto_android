@@ -55,7 +55,8 @@ data class AskUi(val threadId: String, val question: String, val choices: List<S
 sealed interface ChatBlock {
     /** The compacted part of a resumed session, as text. */
     data class Earlier(val text: String) : ChatBlock
-    data class User(val text: String, val atMs: Long? = null) : ChatBlock
+    /** What the person typed, and the files they attached (sent as text; see Attachments). */
+    data class User(val text: String, val atMs: Long? = null, val files: List<FileChip> = emptyList()) : ChatBlock
     /** Otto's answer (Markdown). `turn` is null for answers restored from a transcript. */
     data class Otto(val text: String, val turn: TurnUi? = null, val atMs: Long? = null) : ChatBlock
     /** An error or a stop, in the server's own words. */
@@ -79,7 +80,7 @@ data class ChatState(
 
 sealed interface ChatAction {
     data class Opened(val sessionId: String, val title: String, val turns: Int, val transcript: Transcript? = null) : ChatAction
-    data class Sent(val text: String, val nowMs: Long, val guardLog: List<String> = emptyList()) : ChatAction
+    data class Sent(val text: String, val nowMs: Long, val guardLog: List<String> = emptyList(), val files: List<FileChip> = emptyList()) : ChatAction
     data class StartFailed(val code: String, val message: String, val nowMs: Long) : ChatAction
     data class Event(val event: AgentEvent, val nowMs: Long, val guardLog: List<String>? = null) : ChatAction
     data class Answered(val text: String, val nowMs: Long) : ChatAction
@@ -111,7 +112,7 @@ object ChatReducer {
             blocks = action.transcript?.let(::blocksOf) ?: emptyList(), guardSeen = state.guardSeen,
         )
         is ChatAction.Sent -> state.copy(
-            blocks = state.blocks + ChatBlock.User(action.text, action.nowMs),
+            blocks = state.blocks + ChatBlock.User(action.text, action.nowMs, action.files),
             turn = TurnUi(startedAtMs = action.nowMs, phase = "starting"),
             ask = null,
             guardSeen = action.guardLog,
@@ -130,7 +131,10 @@ object ChatReducer {
 
     private fun blocksOf(t: Transcript): List<ChatBlock> =
         listOfNotNull(t.earlier.takeIf { it.isNotBlank() }?.let(ChatBlock::Earlier)) +
-            t.messages.map { if (it.role == "you") ChatBlock.User(it.text) else ChatBlock.Otto(it.text) }
+            t.messages.map {
+                if (it.role == "you") Attachments.split(it.text).let { (files, typed) -> ChatBlock.User(typed, files = files) }
+                else ChatBlock.Otto(it.text)
+            }
 
     private fun event(state: ChatState, action: ChatAction.Event): ChatState {
         val e = action.event

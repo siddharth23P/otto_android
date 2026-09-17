@@ -7,13 +7,14 @@ the session, the event stream, the ask and its answer, and the phone tools, whic
 PyBridge into the accessibility service exactly as a model's calls would.
 
 The turn: read the screen (phone_screen), open Settings > Display (phone_settings), ask "Which
-one?" with two choices, then answer with what the phone said. A request containing "slow" waits
+one?" with two choices, then answer with what the phone said and the files the message carried. A request containing "slow" waits
 first, so a test can kill the app while a turn runs.
 """
 from __future__ import annotations
 
 import logging
 import os
+import re
 import time
 
 log = logging.getLogger("otto_app.fake")
@@ -55,6 +56,10 @@ def install() -> None:
     seen: dict[str, str] = {}
 
     def fake_run(text, **kwargs):
+        # Each attached file, by name, with the first words of its text (Attachments.compose's blocks).
+        seen["files"] = "; ".join(
+            f"{m.group(1)}: {' '.join(m.group(2).split())[:40]}"
+            for m in re.finditer(r'<attached-file name="([^"]*)"[^>]*>\n\[[^\]]*\]\n(.*?)\n</attached-file>', text or "", re.S))
         if "slow" in (text or "").lower():
             deadline = time.monotonic() + SLOW_S
             while time.monotonic() < deadline:
@@ -70,7 +75,8 @@ def install() -> None:
 
     def fake_resume(answer, **kwargs):
         yield {"__final__": {"final_output": f"fake answer: you picked {answer}. "
-                                             f"screen: {seen.get('screen')}. settings: {seen.get('settings')}"},
+                                             f"screen: {seen.get('screen')}. settings: {seen.get('settings')}. "
+                                             f"attached: {seen.get('files') or 'nothing'}"},
                "__trace_id__": None}
 
     pipeline.run_pipeline_stream = fake_run

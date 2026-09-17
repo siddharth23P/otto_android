@@ -1,6 +1,11 @@
 package dev.otto.phone.ui
 
 import android.app.Application
+import android.net.Uri
+import dev.otto.phone.attach.AttachmentReader
+import dev.otto.phone.state.Attachment
+import dev.otto.phone.state.Attachments
+import dev.otto.phone.state.FileChip
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import dev.otto.phone.OttoApp
@@ -33,11 +38,16 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     private val transport: AgentTransport? get() = connection.current
     private val _state = MutableStateFlow(ChatState())
     val state: StateFlow<ChatState> = _state
+    private val reader = AttachmentReader(app)
+    private val _attachments = MutableStateFlow<List<Attachment>>(emptyList())
+    /** Files waiting to go with the next message, each read to text as soon as it is added. */
+    val attachments: StateFlow<List<Attachment>> = _attachments
     private val _toasts = MutableSharedFlow<String>(extraBufferCapacity = 8)
     /** Short confirmations and failures that are not part of the conversation. */
     val toasts: SharedFlow<String> = _toasts
 
     init {
+        reader.clearCache()
         viewModelScope.launch { EventBus.events.collect { json -> onEvent(AgentEvent.parse(json)) } }
         // The agent-at-work card can answer a question from another app: show that answer here too.
         viewModelScope.launch {
@@ -99,14 +109,37 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         if (sessionId == _state.value.sessionId) dispatch(ChatAction.Renamed(title))
     }
 
+    /** Picked or shared files: each is listed at once and read in the background. */
+    fun attach(uris: List<Uri>) {
+        for (uri in uris) {
+            if (_attachments.value.size >= Attachments.MAX_FILES) { _toasts.tryEmit("at most ${Attachments.MAX_FILES} files per message"); break }
+            val a = reader.peek(uri)
+            if (a == null) { _toasts.tryEmit("Otto reads PDF, Word (.docx), text, JSON and image files"); continue }
+            _attachments.update { it + a }
+            viewModelScope.launch {
+                val state = reader.read(uri, a)
+                _attachments.update { list -> list.map { if (it.id == a.id) it.copy(state = state) else it } }
+            }
+        }
+    }
+
+    fun detach(id: String) = _attachments.update { list -> list.filterNot { it.id == id } }
+
+    /** Whether the files attached so far let a message go: none still being read. */
+    val attachmentsSettled: Boolean get() = _attachments.value.none { it.state == Attachment.State.Reading }
+
     fun send(text: String): Boolean {
         val t = transport
-        if (text.isBlank() || _state.value.running || t == null) return false
-        dispatch(ChatAction.Sent(text, now(), guardLog() ?: emptyList()))
-        OttoForegroundService.start(getApplication(), text.take(80))
+        val files = _attachments.value.filter { it.ready }
+        if ((text.isBlank() && files.isEmpty()) || !attachmentsSettled || _state.value.running || t == null) return false
+        // otto takes text: the files go as marked blocks before what was typed (Attachments.compose).
+        val message = if (files.isEmpty()) text else Attachments.compose(text, files)
+        dispatch(ChatAction.Sent(text.trim(), now(), guardLog() ?: emptyList(), files.map { FileChip(it.name, it.kind) }))
+        _attachments.value = emptyList()
+        OttoForegroundService.start(getApplication(), text.ifBlank { files.joinToString { it.name } }.take(80))
         viewModelScope.launch {
             prefs.setTurnInFlight(_state.value.sessionId.ifBlank { Resumption.NEW_SESSION })
-            val reply = t.startTurn(_state.value.sessionId.ifBlank { null }, text)
+            val reply = t.startTurn(_state.value.sessionId.ifBlank { null }, message)
             if (reply !is Reply.Ok) {
                 val code = (reply as? Reply.Err)?.code ?: "unsupported"
                 // Only a turn that never started fails here; a started one ends with its own event.
