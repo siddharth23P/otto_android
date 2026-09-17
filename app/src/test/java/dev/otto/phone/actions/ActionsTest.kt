@@ -53,6 +53,9 @@ class ActionsTest {
         assertEquals("clock", alarm["group"]!!.jsonPrimitive.content)
         assertEquals(mapOf("clock" to 4, "device" to 5, "message" to 5, "files" to 5),
             ActionCatalog.specs.groupingBy { it.group }.eachCount())
+        // otto finds actions by searching: every one carries words people use for it.
+        assertEquals(emptyList<String>(), ActionCatalog.specs.filter { it.keywords.isEmpty() }.map { it.name })
+        assertEquals("wake", alarm["keywords"]!!.jsonArray[0].jsonPrimitive.content)
         assertEquals("integer", alarm["params"]!!.jsonArray[0].jsonObject["type"]!!.jsonPrimitive.content)
     }
 

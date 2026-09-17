@@ -12,7 +12,31 @@ object ActionCatalog {
 
     val WEEKDAYS = listOf("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 
-    private fun group(name: String, specs: List<ActionSpec>) = specs.map { it.copy(group = name) }
+    /** Search words per action: what people say rather than what the action is called. */
+    private val KEYWORDS = mapOf(
+        "alarm.set" to listOf("wake", "morning", "alarm clock", "remind"),
+        "timer.set" to listOf("countdown", "minutes", "stopwatch", "cooking"),
+        "alarm.show" to listOf("alarms", "clock"),
+        "calendar.add" to listOf("event", "meeting", "appointment", "schedule", "reminder", "invite"),
+        "flashlight" to listOf("torch", "light", "lamp"),
+        "volume" to listOf("sound", "loud", "quiet", "mute", "silent", "ringer", "vibrate"),
+        "media" to listOf("music", "song", "play", "pause", "skip", "track", "podcast"),
+        "dnd" to listOf("do not disturb", "silence", "focus", "notifications", "quiet"),
+        "panel" to listOf("wifi", "bluetooth", "internet", "mobile data", "nfc", "airplane", "settings"),
+        "sms.compose" to listOf("text", "message", "sms"),
+        "email.compose" to listOf("mail", "gmail", "send"),
+        "whatsapp.compose" to listOf("whatsapp", "chat", "message"),
+        "dial" to listOf("call", "phone", "ring"),
+        "contacts.find" to listOf("contact", "number", "email address", "who"),
+        "share" to listOf("send file", "attach", "pdf", "document", "forward"),
+        "open_url" to listOf("website", "link", "browser", "web", "page"),
+        "maps" to listOf("directions", "navigate", "location", "place", "address", "route"),
+        "clipboard.copy" to listOf("copy", "paste", "clipboard"),
+        "note.create" to listOf("keep", "notes", "jot", "list", "remember"),
+    )
+
+    private fun group(name: String, specs: List<ActionSpec>) =
+        specs.map { it.copy(group = name, keywords = KEYWORDS[it.name].orEmpty()) }
 
     val specs: List<ActionSpec> = group("clock", listOf(
         // -- clock and reminders ------------------------------------------------------------------

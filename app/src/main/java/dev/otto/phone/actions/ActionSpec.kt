@@ -30,6 +30,8 @@ data class ActionSpec(
     val effect: Effect = Effect.CHANGE,
     /** Which of otto's action tools lists it: clock, device, message or files. */
     val group: String = "",
+    /** Other words a person might use for it, so otto's search finds it ("wake me up" -> alarm.set). */
+    val keywords: List<String> = emptyList(),
 ) {
     enum class Effect(val wire: String) { READ("read"), CHANGE("change"), CONFIRM("confirm") }
 
@@ -52,6 +54,7 @@ data class ActionSpec(
     fun toJson(): JsonObject = buildJsonObject {
         put("name", name); put("summary", summary); put("effect", effect.wire)
         if (group.isNotEmpty()) put("group", group)
+        if (keywords.isNotEmpty()) put("keywords", JsonArray(keywords.map(::JsonPrimitive)))
         put("params", buildJsonArray {
             params.forEach { p ->
                 add(buildJsonObject {
