@@ -12,12 +12,14 @@ class FilesTextTest {
         val raw = """{"ok":true,"files":[{"id":"f1","name":"My CV.pdf","kind":"pdf","size":1572864,"mime":"application/pdf",
             "uri":"content://x/42","copy":"","copy_path":"","text":"f1-My_CV.pdf.txt","chars":4698,"truncated":false,
             "pages":2,"note":"","added_at":1789632000000,"readable":true}],
-            "documents":[{"name":"tides","path":"otto_research/tides/document.md","size":2048,"modified_at":1}]}"""
+            "documents":[{"name":"tides.md","path":"otto_research/tides/document.md","size":2048,"modified_at":1},
+                         {"name":"GTM.xlsx","path":"documents/GTM.xlsx","abs_path":"/x/GTM.xlsx","mime":"application/x","size":10}]}"""
         val list = Json { ignoreUnknownKeys = true }.decodeFromString(SessionFileList.serializer(), raw)
         val file = list.files.single()
         assertEquals("PDF · 2 pages · 1.5 MB · Sep 17, 08:00", FilesText.meta(file, utc))
         assertEquals("linked to the original · otto has its text", FilesText.source(file))
-        assertEquals("research document · 2 KB", FilesText.document(list.documents.single()))
+        assertEquals("Markdown · research document · 2 KB", FilesText.document(list.documents[0]))
+        assertEquals("Excel · made by otto · 10 B", FilesText.document(list.documents[1]))
     }
 
     @Test fun whereTheOriginalIsAndWhatOttoHas() {

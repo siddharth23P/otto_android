@@ -10,6 +10,7 @@ import androidx.lifecycle.viewModelScope
 import dev.otto.phone.attach.SessionFiles
 import dev.otto.phone.protocol.Reply
 import dev.otto.phone.state.Load
+import dev.otto.phone.state.SessionDocument
 import dev.otto.phone.state.SessionFile
 import dev.otto.phone.state.SessionFileList
 import dev.otto.phone.state.problem
@@ -50,6 +51,23 @@ class FilesViewModel(app: Application) : AndroidViewModel(app) {
         when (val reply = files.remove(sessionId, file)) {
             is Reply.Ok -> { _toasts.tryEmit("removed ${file.name}"); load(sessionId) }
             else -> _toasts.tryEmit(reply.problem("couldn't remove ${file.name}") ?: "")
+        }
+    }
+
+    /** A file otto made, opened in the app that reads its type, or offered to another app. */
+    fun openDocument(doc: SessionDocument, share: Boolean = false) {
+        val app = getApplication<Application>()
+        if (doc.absPath.isBlank()) { _toasts.tryEmit("${doc.name} is not on this phone"); return }
+        val uri = runCatching { FileProvider.getUriForFile(app, "${app.packageName}.files", File(doc.absPath)) }
+            .getOrElse { _toasts.tryEmit("${doc.name} cannot be opened from here"); return }
+        val mime = doc.mime.ifBlank { "*/*" }
+        val intent = if (share) Intent(Intent.ACTION_SEND).setType(mime).putExtra(Intent.EXTRA_STREAM, uri)
+            else Intent(Intent.ACTION_VIEW).setDataAndType(uri, mime)
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        try {
+            app.startActivity(Intent.createChooser(intent, doc.name).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        } catch (e: ActivityNotFoundException) {
+            _toasts.tryEmit("no app here opens ${doc.name}")
         }
     }
 

@@ -69,12 +69,24 @@ def test_storing_the_same_file_again_replaces_its_entry(home):
     assert len(files) == 1 and call(sf.text, SID, "f1a2b3c4d5")["text"] == "new"
 
 
-def test_research_documents_are_listed_too(home):
+def test_documents_otto_made_are_listed_too(home):
+    import os
+    import time
+
     doc = home / "otto_research" / "tides" / "document.md"
     doc.parent.mkdir(parents=True)
     doc.write_text("# Tides")
+    made = home / "documents" / "GTM.xlsx"
+    made.parent.mkdir()
+    made.write_bytes(b"PK")
+    later = time.time() + 5
+    os.utime(made, (later, later))
     documents = call(sf.listing, SID)["documents"]
-    assert [(d["name"], d["path"]) for d in documents] == [("tides", "otto_research/tides/document.md")]
+    assert [(d["name"], d["path"], d["mime"]) for d in documents] == [
+        ("tides.md", "otto_research/tides/document.md", "text/markdown"),
+        ("GTM.xlsx", "documents/GTM.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+    ]
+    assert documents[1]["abs_path"] == str(made)
 
 
 @pytest.mark.parametrize("session", ["", "../../etc", "A" * 32, "a" * 31])

@@ -82,12 +82,18 @@ fun FilesScreen(m: Models) {
                                     FileRow(m, sid, file, viewing?.takeIf { it.first == file.id }?.second)
                                 }
                             }
-                            if (listing.documents.isNotEmpty()) Panel("written by otto") {
+                            if (listing.documents.isNotEmpty()) Panel("made by otto") {
                                 listing.documents.asReversed().forEachIndexed { i, doc ->
                                     if (i > 0) Hairline(color = c.lineSoft)
-                                    Column(Modifier.padding(vertical = 9.dp).semantics(mergeDescendants = true) { }) {
-                                        Text(doc.name, style = OttoTheme.type.ui.copy(fontSize = 15.sp))
-                                        Text(FilesText.document(doc), style = OttoTheme.type.meta.copy(color = c.faint))
+                                    Column(Modifier.padding(vertical = 9.dp).testTag("document_row"), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Column(Modifier.semantics(mergeDescendants = true) { }) {
+                                            Text(doc.name, style = OttoTheme.type.ui.copy(fontSize = 15.sp))
+                                            Text(FilesText.document(doc), style = OttoTheme.type.meta.copy(color = c.faint))
+                                        }
+                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            OttoButton("Open", { m.files.openDocument(doc) }, Modifier.testTag("document_open"), kind = ButtonKind.OUTLINED)
+                                            OttoButton("Share", { m.files.openDocument(doc, share = true) }, Modifier.testTag("document_share"), kind = ButtonKind.OUTLINED)
+                                        }
                                     }
                                 }
                             }

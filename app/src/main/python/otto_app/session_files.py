@@ -30,7 +30,13 @@ log = logging.getLogger("otto_app.session_files")
 DIR = "attachments"
 INDEX = "index.json"
 ORIGINALS = "originals"
-DOCUMENTS = "otto_research"
+RESEARCH = "otto_research"
+#: What otto's make_document writes (agent/pipeline/documents.py OUT_DIR).
+MADE = "documents"
+_MIME = {".pdf": "application/pdf", ".md": "text/markdown",
+         ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+         ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+         ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation"}
 
 _SESSION = re.compile(r"^[0-9a-f]{32}$")
 _ID = re.compile(r"^[A-Za-z0-9-]{8,64}$")
@@ -130,12 +136,15 @@ def listing(session_id: str) -> str:
         entry["copy_path"] = str(folder / entry["copy"]) if entry.get("copy") else ""
         entry["readable"] = (folder / str(entry.get("text", ""))).is_file()
         files.append(entry)
+    found = [p for p in (workspace / MADE).glob("*") if p.is_file()] if (workspace / MADE).is_dir() else []
+    if (workspace / RESEARCH).is_dir():
+        found += [p for p in (workspace / RESEARCH).glob("*/document.*") if p.is_file()]
     documents = []
-    research = workspace / DOCUMENTS
-    if research.is_dir():
-        for doc in sorted(research.glob("*/document.md"), key=lambda p: p.stat().st_mtime):
-            documents.append({"name": doc.parent.name, "path": doc.relative_to(workspace).as_posix(),
-                              "size": doc.stat().st_size, "modified_at": int(doc.stat().st_mtime * 1000)})
+    for doc in sorted(found, key=lambda p: p.stat().st_mtime):
+        name = f"{doc.parent.name}{doc.suffix}" if doc.parent.parent.name == RESEARCH else doc.name
+        documents.append({"name": name, "path": doc.relative_to(workspace).as_posix(), "abs_path": str(doc),
+                          "mime": _MIME.get(doc.suffix.lower(), "application/octet-stream"),
+                          "size": doc.stat().st_size, "modified_at": int(doc.stat().st_mtime * 1000)})
     return _ok(files=files, documents=documents)
 
 

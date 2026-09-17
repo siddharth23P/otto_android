@@ -36,6 +36,8 @@ data class SessionFile(
 data class SessionDocument(
     val name: String,
     val path: String,
+    @SerialName("abs_path") val absPath: String = "",
+    val mime: String = "",
     val size: Long = 0,
     @SerialName("modified_at") val modifiedAt: Long = 0,
 )
@@ -83,5 +85,12 @@ object FilesText {
         return "$original · $read"
     }
 
-    fun document(doc: SessionDocument): String = "research document · ${Attachments.size(doc.size)}"
+    fun document(doc: SessionDocument): String {
+        val kind = when (doc.name.substringAfterLast('.', "").lowercase()) {
+            "pdf" -> "PDF"; "docx" -> "Word"; "xlsx" -> "Excel"; "pptx" -> "PowerPoint"; "md" -> "Markdown"
+            else -> "file"
+        }
+        val what = if (doc.path.startsWith("otto_research/")) "research document" else "made by otto"
+        return "$kind · $what · ${Attachments.size(doc.size)}"
+    }
 }
