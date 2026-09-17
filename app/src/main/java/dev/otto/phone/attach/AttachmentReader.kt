@@ -5,8 +5,6 @@ import android.graphics.Bitmap
 import android.graphics.ImageDecoder
 import android.net.Uri
 import android.provider.OpenableColumns
-import com.chaquo.python.Python
-import com.chaquo.python.android.AndroidPlatform
 import dev.otto.phone.BuildConfig
 import dev.otto.phone.log.OttoLog
 import dev.otto.phone.protocol.Protocol
@@ -14,6 +12,7 @@ import dev.otto.phone.protocol.Reply
 import dev.otto.phone.state.Attachment
 import dev.otto.phone.state.Attachments
 import dev.otto.phone.state.FileKind
+import dev.otto.phone.transport.PythonRuntime
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.booleanOrNull
@@ -56,7 +55,11 @@ class AttachmentReader(private val context: Context) {
             if (a.size > limit) return@withContext Attachment.State.Failed("${a.name} is ${Attachments.size(a.size)}; the limit is ${Attachments.size(limit)}")
             if (a.kind == FileKind.IMAGE) shrinkImage(uri, copy) else copyCapped(uri, copy, limit)
             val mime = if (a.kind == FileKind.IMAGE) "image/jpeg" else context.contentResolver.getType(uri).orEmpty()
-            if (BuildConfig.EMBEDDED_PYTHON) readWithPython(copy, a.name, mime) else readHere(copy, a)
+            (if (BuildConfig.EMBEDDED_PYTHON) readWithPython(copy, a.name, mime) else readHere(copy, a)).also { state ->
+                // The kind and the outcome only: never the name or the text.
+                OttoLog.i(TAG, "read a ${a.kind.wire} (${Attachments.size(a.size)}): ${state.javaClass.simpleName}" +
+                    ((state as? Attachment.State.Failed)?.let { " -- ${it.message.substringAfter(": ", it.message)}" } ?: ""))
+            }
         } catch (e: TooLarge) {
             Attachment.State.Failed("${a.name} is over ${Attachments.size(e.limit)}")
         } catch (e: Exception) {
@@ -101,8 +104,7 @@ class AttachmentReader(private val context: Context) {
     }
 
     private fun readWithPython(file: File, name: String, mime: String): Attachment.State {
-        if (!Python.isStarted()) Python.start(AndroidPlatform(context))
-        val reply = Python.getInstance().getModule("otto_app.attachments").callAttr("read", file.absolutePath, name, mime).toString()
+        val reply = PythonRuntime.get(context).getModule("otto_app.attachments").callAttr("read", file.absolutePath, name, mime).toString()
         val json = Protocol.parse(reply) ?: return Attachment.State.Failed("$name could not be read")
         (Protocol.errorOf(json) as? Reply.Err)?.let { return Attachment.State.Failed(it.message.ifBlank { "$name could not be read" }) }
         return Attachment.State.Ready(

@@ -7,6 +7,8 @@ import android.content.Intent
 import android.net.Uri
 import android.provider.MediaStore
 import android.os.Build
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
@@ -148,8 +150,14 @@ class SmokeTest {
         }
         compose.waitUntilAtLeastOneExists(hasTestTag("chat_input"), 60_000)
         compose.waitUntil(30_000) { compose.onAllNodes(hasTestTag("attachment_row")).fetchSemanticsNodes().size == 2 }
-        // Read: the rows say the PDF's page count once pypdf has been through it.
-        compose.waitUntilAtLeastOneExists(hasText("1 page", substring = true), 60_000)
+        // Read: no row says it is still reading, and the PDF's row has its page count from pypdf.
+        val rows = { compose.onAllNodes(hasTestTag("attachment_row")).fetchSemanticsNodes()
+            .map { it.config.getOrNull(SemanticsProperties.ContentDescription)?.joinToString().orEmpty() } }
+        runCatching { compose.waitUntil(90_000) { rows().none { "reading" in it } } }
+        val said = rows()
+        android.util.Log.i("OttoSmoke", "attachment rows: $said")
+        assertTrue("attachment rows: $said", said.any { "otto-smoke-report.pdf" in it && "1 page" in it })
+        assertTrue("attachment rows: $said", said.any { "otto-smoke-note.txt" in it && "text" in it })
         send("what do these say")
         Thread.sleep(3_000)
         bringOttoBack()
