@@ -12,6 +12,7 @@ import dev.otto.phone.state.ChatAction
 import dev.otto.phone.state.ChatBlock
 import dev.otto.phone.state.ChatReducer
 import dev.otto.phone.state.ChatState
+import dev.otto.phone.state.Resumption
 import dev.otto.phone.state.problem
 import dev.otto.phone.transport.AgentTransport
 import dev.otto.phone.transport.Answers
@@ -28,6 +29,7 @@ import kotlinx.coroutines.launch
  *  notes. The foreground service lives exactly as long as a turn. */
 class ChatViewModel(app: Application) : AndroidViewModel(app) {
     private val connection = (app as OttoApp).connection
+    private val prefs = (app as OttoApp).prefs
     private val transport: AgentTransport? get() = connection.current
     private val _state = MutableStateFlow(ChatState())
     val state: StateFlow<ChatState> = _state
@@ -53,6 +55,13 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     fun onConnected() = viewModelScope.launch {
         val current = _state.value.sessionId.ifBlank { null }
         if (_state.value.running) return@launch
+        val noted = prefs.turnInFlight()
+        if (noted != null) prefs.setTurnInFlight(null)
+        // The process died with a turn running: reopen where it ran and say what happened to it.
+        Resumption.interrupted(noted, current)?.let { ref ->
+            if (open(ref.ifBlank { null }) || open(null)) dispatch(ChatAction.Notice("interrupted", Resumption.INTERRUPTED, now()))
+            return@launch
+        }
         if (!open(current) && current != null) open(null)
     }
 
@@ -96,6 +105,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         dispatch(ChatAction.Sent(text, now(), guardLog() ?: emptyList()))
         OttoForegroundService.start(getApplication(), text.take(80))
         viewModelScope.launch {
+            prefs.setTurnInFlight(_state.value.sessionId.ifBlank { Resumption.NEW_SESSION })
             val reply = t.startTurn(_state.value.sessionId.ifBlank { null }, text)
             if (reply !is Reply.Ok) {
                 val code = (reply as? Reply.Err)?.code ?: "unsupported"
@@ -103,6 +113,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 if (_state.value.turn?.phase == "starting" || _state.value.running) {
                     dispatch(ChatAction.StartFailed(code, reply.problem("couldn't start") ?: "", now()))
                 }
+                prefs.setTurnInFlight(null)
                 OttoForegroundService.stop(getApplication())
             }
         }
@@ -131,7 +142,12 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         // Stop in the notification, from outside the chat: the same cancel as the Stop button.
         if (event is AgentEvent.CancelRequest) stop()
         dispatch(ChatAction.Event(event, now(), guardLog()))
+        if (event is AgentEvent.Started) {
+            val sid = _state.value.sessionId
+            if (sid.isNotBlank()) viewModelScope.launch { prefs.setTurnInFlight(sid) }
+        }
         if (event is AgentEvent.Final || event is AgentEvent.Error) {
+            viewModelScope.launch { prefs.setTurnInFlight(null) }
             OttoForegroundService.stop(getApplication())
             if (event is AgentEvent.Final) loadUsage()
         }

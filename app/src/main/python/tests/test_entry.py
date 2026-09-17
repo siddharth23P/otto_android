@@ -100,3 +100,33 @@ def test_the_bridge_runs_off_the_calling_thread(bridge, tmp_path, monkeypatch):
     entry.start_turn(sid, "x")
     assert _wait(lambda: any(e["type"] == "final" for e in bridge.events))
     assert seen["thread"].startswith("otto-turn-")
+
+
+def test_the_fake_model_runs_a_whole_turn_through_the_phone(bridge, tmp_path, monkeypatch):
+    # #14: the emulator smoke test's turn, on the host. The script replaces the same two pipeline
+    # functions the tests above do; restore them afterwards.
+    from agent import embed
+    from otto_app import fake
+
+    monkeypatch.setattr(pipeline, "run_pipeline_stream", pipeline.run_pipeline_stream)
+    monkeypatch.setattr(pipeline, "resume_pipeline_stream", pipeline.resume_pipeline_stream)
+    monkeypatch.setattr(embed, "DECIDE_PHONE", embed.DECIDE_PHONE)
+    monkeypatch.setitem(fake._state, "installed", False)
+    monkeypatch.delenv(fake.ENV, raising=False)
+    assert fake.pipeline_import_seconds() == -1.0 or fake._state["pipeline_import_s"] is not None
+
+    status = json.loads(bootstrap.configure(str(tmp_path / "otto"), "{}", False, True))
+    assert status["ok"] and fake.enabled() and fake.pipeline_import_seconds() >= 0
+    assert embed.DECIDE_PHONE is False
+    sid = json.loads(entry.open_session(""))["session_id"]
+    assert json.loads(entry.start_turn(sid, "show me the display settings", "auto"))["ok"]
+    assert _wait(lambda: any(e["type"] == "ask" for e in bridge.events))
+    ask = next(e for e in bridge.events if e["type"] == "ask")
+    assert ask["question"] == fake.QUESTION and ask["choices"] == fake.CHOICES
+    assert json.loads(entry.answer(sid, fake.THREAD, "second"))["ok"]
+    assert _wait(lambda: any(e["type"] == "final" for e in bridge.events))
+    final = bridge.events[-1]
+    assert final["text"].startswith("fake answer: you picked second.")
+    assert ("tree",) in bridge.calls and ("open_settings", "display", "") in bridge.calls
+    boards = [line for e in bridge.events if e["type"] == "board" for line in e["lines"]]
+    assert any(line.startswith("solve: phone_screen") for line in boards)

@@ -82,6 +82,7 @@ fun KeysScreen(m: Models) {
                 SettingsText.vendors(status.vendorRows, status.maskedKeys).forEach { v ->
                     Panel(v.label.ifBlank { v.name }) {
                         val shown = SettingsText.keyValue(v, status.maskedKeys)
+                        SettingsText.vendorNote(v.name)?.let { Text(it, style = OttoTheme.type.meta.copy(color = c.dim), modifier = Modifier.padding(bottom = 5.dp)) }
                         KvRow(v.keyVar, shown, first = true, valueColor = if (shown == SettingsText.NOT_SET) c.faint else c.ink)
                         var value by rememberSaveable(v.keyVar) { mutableStateOf("") }
                         MonoField(

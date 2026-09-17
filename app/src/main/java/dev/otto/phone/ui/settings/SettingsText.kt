@@ -29,6 +29,14 @@ object SettingsText {
             }
         }
 
+    /** What a vendor's key is for, where that is not obvious: otto starts only with Inception's, and
+     *  Gemini's adds semantic recall and the screenshots phone_look reads. */
+    fun vendorNote(name: String): String? = when (name.lowercase()) {
+        "inception" -> "required — otto cannot start without this key"
+        "gemini" -> "optional — adds semantic memory recall and lets Otto look at the screen (phone_look)"
+        else -> null
+    }
+
     fun probe(result: ProbeResult): String {
         val models = result.modelCount ?: result.models.size.takeIf { it > 0 }
         val head = if (result.ok) "works" else result.status.ifBlank { "failed" }

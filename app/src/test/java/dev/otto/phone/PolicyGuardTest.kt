@@ -48,6 +48,20 @@ class PolicyGuardTest {
         }
     }
 
+    @Test fun aProtectedWindowHandsOverEvenAnOrdinaryTap() {
+        // #18: the probe marks a FLAG_SECURE page on its first read; nothing on it is acted on, and the
+        // person keeps the phone until they tap Resume.
+        val bank = screen("com.example.lite", "Lite", node(1, "Continue", clickable = true), secure = true)
+        assertEquals("", guard.packageVerdict("com.example.lite", "Lite"))
+        val probeGuard = PolicyGuard(rules)
+        refused("guard", handover = true) { probeGuard.requireActionable(bank) }
+        assertTrue(probeGuard.handedOver)
+        refused("guard", handover = true) { probeGuard.requireActionable(screen("com.example.notes", "Notes", node(1, "New", clickable = true))) }
+        probeGuard.handedOver = false
+        probeGuard.requireActionable(screen("com.example.notes", "Notes", node(1, "New", clickable = true)))
+        refused("guard", handover = true) { PolicyGuard(rules).requireCapturable(bank) }
+    }
+
     @Test fun aFieldAskingForASecretMakesTheScreenSecure() {
         assertTrue(guard.secureReason(screen("com.example.shop", "Shop", node(1, "Verify"), node(2, "Enter OTP", editable = true))).contains("payment or sign-in"))
         assertTrue(guard.secureReason(screen("com.example.shop", "Shop", node(1, "Enter your OTP"), node(2, "Enter code", editable = true))).isNotEmpty())

@@ -22,6 +22,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -63,6 +64,7 @@ fun SettingsScreen(m: Models) {
                 KvRow("version", SettingsText.version(app.ottoVersion, app.apiVersion, app.capabilities.protocol))
                 val (status, color) = when (val link = app.link) {
                     Link.Connecting -> "connecting…" to c.dim
+                    Link.Reconnecting -> "reconnecting…" to c.warn
                     Link.Ready -> "ready" to c.ok
                     Link.NeedsKey -> "needs a key" to c.warn
                     is Link.Failed -> link.message to c.bad
@@ -76,10 +78,15 @@ fun SettingsScreen(m: Models) {
                 app.pairingError?.let { Text(it, style = OttoTheme.type.meta.copy(color = c.bad), modifier = Modifier.padding(top = 5.dp)) }
                 Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OttoButton("Pair", { m.app.pairServe(pairing) }, Modifier.testTag("settings_pair"), enabled = pairing.isNotBlank())
+                    val context = LocalContext.current
+                    OttoButton("Scan QR", { QrPairing.scan(context, onLine = { m.app.pairServe(it) }, onProblem = { m.app.pairingProblem(it) }) },
+                        Modifier.testTag("settings_scan"), kind = ButtonKind.OUTLINED)
                     OttoButton("Use this phone", { m.app.useEmbedded() }, Modifier.testTag("settings_embedded"), kind = ButtonKind.OUTLINED)
                 }
                 Text(
-                    "otto serve listens on 127.0.0.1. Over USB, run adb reverse tcp:8765 tcp:8765 and pair with the line it printed.",
+                    "otto serve listens on 127.0.0.1. Over USB, run adb reverse tcp:8765 tcp:8765 and pair with the line it printed " +
+                        "(otto serve --qr prints it as a code to scan). Plain ws:// is allowed only to localhost and .local/.lan/.home " +
+                        "names; anything else, a Tailscale address included, needs wss://.",
                     style = OttoTheme.type.meta, modifier = Modifier.padding(top = 8.dp),
                 )
             }

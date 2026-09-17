@@ -1,6 +1,9 @@
 package dev.otto.phone.ui
 
+import android.Manifest
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -52,6 +55,12 @@ fun OttoRoot(m: Models) {
         m.app.refreshService()
     }
     LaunchedEffect(Unit) { m.sessions.imported.collect { m.chat.openSession(it) } }
+    // Android 13+: the notification a running turn shows (with its Stop) needs the permission, asked once,
+    // after the disclosure and before any turn.
+    val notifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { m.app.notificationsAsked() }
+    LaunchedEffect(app.disclosureAccepted, app.askNotifications) {
+        if (app.disclosureAccepted == true && app.askNotifications) notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
 
     BackHandler(enabled = app.stack.canPop) { m.app.back() }
 

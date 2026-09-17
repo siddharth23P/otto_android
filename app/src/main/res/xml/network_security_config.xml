@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Cleartext WebSockets only to private networks: `otto serve` on a laptop
-     over Wi-Fi, or a local runtime on the phone. Everything else is TLS. -->
+     over Wi-Fi, or a local runtime on the phone. Everything else is TLS.
+     Android cannot allow cleartext by address range, so a LAN IP, a Tailscale
+     or other overlay address (100.x, *.ts.net) needs wss:// (for instance
+     `tailscale serve` in front of otto serve) or its own entry here. -->
 <network-security-config>
     <base-config cleartextTrafficPermitted="false" />
     <domain-config cleartextTrafficPermitted="true">

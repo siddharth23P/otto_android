@@ -97,9 +97,12 @@ class EmbeddedTransport(private val context: Context, private val prefs: Prefs) 
             if (!Python.isStarted()) Python.start(AndroidPlatform(context))
             val home = File(context.filesDir, "otto").absolutePath
             val keys = prefs.vendorKeysJson(prefs.vendorKeys())
-            // BuildConfig.DEBUG keeps the runtime's DEBUG logs, the HTTP transport's among them.
+            // BuildConfig.DEBUG keeps the runtime's DEBUG logs, the HTTP transport's among them. The fake
+            // model is the emulator smoke test's, switched on by a file only a test writes.
+            val fake = BuildConfig.FAKE_MODEL_ALLOWED && File(context.filesDir, FAKE_MODEL_FLAG).exists()
+            if (fake) OttoLog.w(TAG, "fake model on: turns are scripted, no model is called")
             val configured = Protocol.parse(Python.getInstance().getModule("otto_app.bootstrap")
-                .callAttr("configure", home, keys, BuildConfig.DEBUG).toString())
+                .callAttr("configure", home, keys, BuildConfig.DEBUG, fake).toString())
                 ?: return@withContext Reply.Err("malformed", "configure did not return a JSON object")
             Protocol.errorOf(configured)?.let { return@withContext it }
             val features = featuresPresent()
@@ -177,6 +180,8 @@ class EmbeddedTransport(private val context: Context, private val prefs: Prefs) 
 
     companion object {
         private const val TAG = "OttoTransport"
+        /** otto_app/fake.py's FLAG_FILE. */
+        const val FAKE_MODEL_FLAG = "otto_fake_model"
 
         /** The entry.py function behind each op beyond protocol 1 — the names C8 implements. */
         val FUNCTIONS: Map<Op, String> = mapOf(

@@ -81,6 +81,8 @@ android {
         versionName = "0.1.0"
         ndk { abiFilters += abis }
         buildConfigField("boolean", "EMBEDDED_PYTHON", embeddedPython.toString())
+        // Whether files/otto_fake_model may switch otto's pipeline for a script (#14): never in release.
+        buildConfigField("boolean", "FAKE_MODEL_ALLOWED", "true")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -98,10 +100,27 @@ android {
     buildTypes {
         release {
             if (releaseStore != null) signingConfig = signingConfigs.getByName("release")
-            isMinifyEnabled = false
+            // Shrinking takes ~20 MB of unused library code out of each APK (#14's size budget);
+            // proguard-rules.pro keeps names, and what Python calls.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            buildConfigField("boolean", "FAKE_MODEL_ALLOWED", "false")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
+        // The release build, shrunk exactly as release is, but signed with the debug key and allowed the
+        // fake model: what the emulator job runs the smoke test against, so shrinking cannot break a
+        // release unseen (#14).
+        create("minified") {
+            initWith(getByName("release"))
+            signingConfig = signingConfigs.getByName("debug")
+            buildConfigField("boolean", "FAKE_MODEL_ALLOWED", "true")
+            proguardFile("proguard-minified-rules.pro")
+            testProguardFiles("proguard-test-rules.pro")
+            matchingFallbacks += listOf("release")
+        }
     }
+    // Instrumented tests run against debug unless -PtestBuildType=minified asks for the shrunk build.
+    testBuildType = (project.findProperty("testBuildType") as String?) ?: "debug"
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -166,5 +185,14 @@ dependencies {
     implementation(libs.markdown.renderer.m3)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.datastore.preferences)
+    // Pairing by QR (#16): Google's scanner UI, which needs no camera permission of Otto's own.
+    implementation(libs.code.scanner)
     testImplementation(libs.junit)
+    testImplementation(libs.mockwebserver)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.core)
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(platform(libs.compose.bom))
+    androidTestImplementation(libs.compose.ui.test.junit4)
+    debugImplementation(libs.compose.ui.test.manifest)
 }

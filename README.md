@@ -10,13 +10,15 @@ password, and hands a purchase to you at the payment page.
 
 ## Where Otto runs
 
-One app, three ways to reach the agent, behind one seam (`transport/`):
+One app, two ways to reach the agent, behind one seam (`transport/`):
 
 | mode | what it is | status |
 | --- | --- | --- |
-| **embedded** | Otto's Python inside the APK (Chaquopy, Python 3.13) | gated on `wheels/`: seven compiled packages Otto needs have no Android wheel on PyPI, and `.github/workflows/wheels.yml` builds them |
-| **local serve** | `otto serve` in a Linux userland on the phone, over `ws://127.0.0.1` | planned; the same protocol as below |
-| **remote serve** | `otto serve` on a computer on your Wi-Fi | works today: pair from Settings |
+| **embedded** | otto 0.1.2 from PyPI inside the APK (Chaquopy, Python 3.13) | the release build; the compiled wheels PyPI lacks for Android come from the `wheels-cp313-otto-0.1.2` release (`wheels/`) |
+| **remote serve** | `otto serve` on a computer | pair from Settings; used while developing the app |
+
+A Linux userland on the phone (proot) was the fallback if the embedded runtime
+could not be built; it was not needed (#13).
 
 The hands are always local: the accessibility service, the guard and the UI
 are the same in every mode.
@@ -25,7 +27,8 @@ are the same in every mode.
 
 ```bash
 ./gradlew assembleDebug                      # embedded runtime off (default): the app pairs with otto serve
-./gradlew -PembeddedPython=true assembleDebug # once wheels/ carries the Android wheels
+./gradlew -PembeddedPython=true assembleDebug # otto on the phone; downloads the wheel set wheels/wheels.json names
+./gradlew -PembeddedPython=true -Pabi=arm64-v8a assembleRelease  # one ABI; signed from ~/.gradle/gradle.properties (OTTO_RELEASE_*)
 ./gradlew testDebugUnitTest
 pip install -r app/src/main/python/requirements.txt pytest && pytest -q app/src/main/python/tests
 ```
@@ -35,12 +38,20 @@ Android Studio Ladybug or newer, JDK 17, compileSdk 35, minSdk 30.
 ## Pair with a computer
 
 ```bash
-git clone https://github.com/siddharth23P/otto_agent && cd otto_agent && uv sync
-uv run otto serve --host 0.0.0.0        # prints ws://<ip>:8765/#<token>
+pipx install "otto-cli-agent[serve]"
+otto serve --qr                          # prints ws://127.0.0.1:8765/#<token>, and the same line as a QR code
+adb reverse tcp:8765 tcp:8765            # over USB
 ```
 
-Paste that line into Settings → "Pair with otto serve" in the app. Keys stay
-on the computer; the phone only lends its hands.
+In the app, Settings → "Where otto runs": paste the line and tap Pair, or tap
+Scan QR. Keys stay on the computer; the phone only lends its hands. A dropped
+connection is retried by itself (a request running at that moment is lost),
+and an `otto serve` older than 0.1.2 is told to `pipx upgrade otto-cli-agent`.
+
+Plain `ws://` is allowed only to `localhost`, `127.0.0.1`, `10.0.2.2` and
+`.local`/`.lan`/`.home` names (`res/xml/network_security_config.xml`).
+`otto serve --host 0.0.0.0` on a LAN address, or a Tailscale address, needs
+`wss://` in front of it (for instance `tailscale serve`) or its own entry there.
 
 ## The money guard
 

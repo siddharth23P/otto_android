@@ -36,7 +36,12 @@ import dev.otto.phone.protocol.Transcript
 import dev.otto.phone.protocol.TurnStarted
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.DeserializationStrategy
@@ -53,7 +58,11 @@ import java.util.concurrent.TimeUnit
 /** Otto on the other end of a WebSocket (`otto serve`): a laptop while the
  *  app is developed, or a Linux userland on this phone. The phone's hands are
  *  still local: every device_call runs through PyBridge. Which reply answers
- *  which request is the Correlator's call. */
+ *  which request is the Correlator's call.
+ *
+ *  A socket that drops after it was up is reopened with [Backoff] until it answers hello again or the
+ *  transport is closed (#16). Whatever was waiting on the old socket fails at once -- a turn in flight
+ *  is lost, and its error says so. */
 class ServeTransport(private val url: String, private val token: String) : AgentTransport {
     override val name = "serve"
     private val client = OkHttpClient.Builder().pingInterval(20, TimeUnit.SECONDS).readTimeout(0, TimeUnit.SECONDS).build()
@@ -62,6 +71,11 @@ class ServeTransport(private val url: String, private val token: String) : Agent
     @Volatile private var socket: WebSocket? = null
     @Volatile override var capabilities: Capabilities = Capabilities.V1
         private set
+    private val _reconnecting = MutableStateFlow(false)
+    override val reconnecting: StateFlow<Boolean> = _reconnecting
+    @Volatile private var closed = false
+    @Volatile private var everConnected = false
+    private var reconnectJob: Job? = null
 
     private val listener = object : WebSocketListener() {
         override fun onOpen(webSocket: WebSocket, response: Response) {
@@ -93,20 +107,46 @@ class ServeTransport(private val url: String, private val token: String) : Agent
     private fun lost(webSocket: WebSocket, message: String) {
         if (socket !== webSocket) return
         socket = null
-        correlator.failAll("disconnected", message).forEach(EventBus::emit)
+        val reconnect = everConnected && !closed
+        val told = if (reconnect) "$message — reconnecting; a request that was running was lost" else message
+        correlator.failAll("disconnected", told).forEach(EventBus::emit)
+        if (reconnect) reconnect()
     }
 
-    override suspend fun start(): Reply<Hello> {
+    override suspend fun start(): Reply<Hello> =
+        connectOnce().also { if (it !is Reply.Ok) close() }
+
+    /** One socket, and its hello. */
+    private suspend fun connectOnce(): Reply<Hello> {
         val waiter = correlator.beginHello()
-        socket = client.newWebSocket(Request.Builder().url(url).build(), listener)
+        val ws = client.newWebSocket(Request.Builder().url(url).build(), listener)
+        socket = ws
         val reply = withTimeoutOrNull(15_000) { waiter.await() }
-            ?: return Reply.Err("timeout", "otto serve did not answer within 15 s").also { close() }
+        if (reply == null) {
+            if (socket === ws) socket = null
+            ws.cancel()
+            return Reply.Err("timeout", "otto serve did not answer within 15 s")
+        }
         return when (reply) {
             is Reply.Ok -> Protocol.decode(Hello.serializer(), reply.value).also { hello ->
-                if (hello is Reply.Ok) capabilities = Capabilities.of(hello.value)
+                if (hello is Reply.Ok) { capabilities = Capabilities.of(hello.value); everConnected = true }
             }
             is Reply.Err -> Reply.Err(if (reply.code == "disconnected") reply.code else "hello", reply.message.ifBlank { "refused" })
             Reply.Unsupported -> Reply.Err("hello", "refused")
+        }
+    }
+
+    @Synchronized private fun reconnect() {
+        if (reconnectJob?.isActive == true) return
+        _reconnecting.value = true
+        reconnectJob = scope.launch {
+            val backoff = Backoff()
+            while (isActive && !closed) {
+                delay(backoff.next())
+                if (closed) break
+                if (connectOnce() is Reply.Ok) break
+            }
+            _reconnecting.value = false
         }
     }
 
@@ -178,6 +218,9 @@ class ServeTransport(private val url: String, private val token: String) : Agent
     override suspend fun file(sessionId: String, name: String) = request(Op.FILES, FileBlob.serializer(), sessionId) { Frames.file(sessionId, name, it) }
 
     override fun close() {
+        closed = true
+        reconnectJob?.cancel()
+        _reconnecting.value = false
         val ws = socket
         socket = null
         correlator.failAll("disconnected", "closed").forEach(EventBus::emit)

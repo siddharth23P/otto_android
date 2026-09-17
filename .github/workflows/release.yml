@@ -1,0 +1,123 @@
+# Signed release APKs, one per ABI, plus an app bundle, attached to a GitHub Release (#20).
+#
+# Runs on a v* tag (whose version must equal versionName) or by hand for a named tag. A pull request
+# that changes this file runs it as a rehearsal: everything is built and checked, nothing is attached. The keystore
+# and its password are repository secrets -- OTTO_RELEASE_KEYSTORE_B64 (the .jks, base64),
+# OTTO_RELEASE_STORE_PASSWORD, OTTO_RELEASE_KEY_PASSWORD -- and reach Gradle as ORG_GRADLE_PROJECT_*
+# properties, never as command-line arguments. Every APK is checked to carry Otto's release
+# certificate before anything is uploaded: an update signed with any other key will not install.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths: [".github/workflows/release.yml"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build and attach to (the release is created as a draft if missing)"
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref }}
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
+  # Otto's release certificate (keytool -list), the one every installed copy was signed with.
+  CERT_SHA256: d69c3f5b3cdd5dafc16a9173d34c841e03d6785d2f3f4213b853af17f8d5ef9b
+
+jobs:
+  apks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: The tag names this version
+        run: |
+          version=$(sed -n 's/^ *versionName = "\(.*\)"/\1/p' app/build.gradle.kts)
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          if [ "$GITHUB_EVENT_NAME" != "pull_request" ] && [ "$TAG" != "v$version" ]; then
+            echo "::error::tag $TAG does not match versionName $version"; exit 1
+          fi
+
+      - name: Keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.OTTO_RELEASE_KEYSTORE_B64 }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then echo "::error::the OTTO_RELEASE_KEYSTORE_B64 secret is not set"; exit 1; fi
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/otto-release.jks"
+
+      - name: Unit tests
+        run: ./gradlew --no-daemon testDebugUnitTest
+
+      - name: Signed APK per ABI, and the bundle
+        env:
+          ORG_GRADLE_PROJECT_OTTO_RELEASE_STORE_FILE: ${{ runner.temp }}/otto-release.jks
+          ORG_GRADLE_PROJECT_OTTO_RELEASE_STORE_PASSWORD: ${{ secrets.OTTO_RELEASE_STORE_PASSWORD }}
+          ORG_GRADLE_PROJECT_OTTO_RELEASE_KEY_ALIAS: otto
+          ORG_GRADLE_PROJECT_OTTO_RELEASE_KEY_PASSWORD: ${{ secrets.OTTO_RELEASE_KEY_PASSWORD }}
+        run: |
+          mkdir -p dist
+          for abi in arm64-v8a x86_64; do
+            ./gradlew --no-daemon -PembeddedPython=true -Pabi=$abi assembleRelease
+            cp app/build/outputs/apk/release/app-release.apk "dist/otto-$VERSION-$abi.apk"
+          done
+          # Play serves each phone its own ABI from the bundle.
+          ./gradlew --no-daemon -PembeddedPython=true bundleRelease
+          cp app/build/outputs/bundle/release/app-release.aab "dist/otto-$VERSION.aab"
+          rm -f "$RUNNER_TEMP/otto-release.jks"
+
+      - name: Every APK carries Otto's certificate, within the size budget
+        run: |
+          apksigner=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)
+          echo "using $apksigner"
+          for apk in dist/*.apk; do
+            report=$("$apksigner" verify --print-certs "$apk" 2>&1) || { echo "$report"; echo "::error::$apk does not verify"; exit 1; }
+            # "Signer #1 certificate SHA-256 digest:" or, from build-tools 37, "V2 Signer: certificate ...".
+            got=$(sed -n 's/^.*[Ss]igner.*certificate SHA-256 digest: //p' <<< "$report" | head -1)
+            if [ "$got" != "$CERT_SHA256" ]; then echo "$report"; echo "::error::$apk is signed with '$got'"; exit 1; fi
+            # #14: at most 75 MB per ABI (numpy and OpenBLAS alone are 22 MB unpacked).
+            size=$(stat -c %s "$apk")
+            if [ "$size" -gt $((75 * 1048576)) ]; then echo "::error::$apk is $((size / 1048576)) MB, over 75 MB"; exit 1; fi
+          done
+          python3 .github/scripts/check_16k.py dist/*arm64-v8a.apk
+          got=$(keytool -printcert -jarfile "dist/otto-$VERSION.aab" | sed -n 's/^\s*SHA256: //p' | tr -d ':' | tr 'A-F' 'a-f' | head -1)
+          if [ "$got" != "$CERT_SHA256" ]; then echo "::error::the bundle is signed with $got"; exit 1; fi
+          (cd dist && sha256sum * > SHA256SUMS)
+          {
+            echo "## otto $VERSION"
+            echo
+            echo "| file | MB |"
+            echo "| --- | --- |"
+            for f in dist/*.apk dist/*.aab; do echo "| $(basename "$f") | $(( $(stat -c %s "$f") / 1048576 )) |"; done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: otto-${{ env.VERSION }}
+          path: dist/
+          if-no-files-found: error
+
+      - name: Attach to the release
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$TAG" >/dev/null 2>&1 \
+            || gh release create "$TAG" --draft --verify-tag --title "Otto $VERSION" --notes "Signed APKs per ABI and an app bundle, built by release.yml."
+          gh release upload "$TAG" dist/* --clobber
