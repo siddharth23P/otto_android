@@ -51,7 +51,8 @@ for abi in arm64_v8a x86_64; do
     # 16 KB pages; and libxml2's version script names symbols this configuration leaves out, which
     # the 2019 linker only warned about.
     export LDFLAGS="-Wl,-z,max-page-size=16384 -Wl,--undefined-version"
-    export CFLAGS="-O2"
+    # 2018 sources: what clang 16 made errors, the 2019 compiler only warned about.
+    export CFLAGS="-O2 -Wno-error=incompatible-function-pointer-types -Wno-error=int-conversion -Wno-error=implicit-function-declaration -Wno-error=implicit-int"
 
     for name in libxml2 libxslt freetype; do
         prefix="$work/prefix/$name-$abi/chaquopy"
