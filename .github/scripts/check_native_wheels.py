@@ -19,6 +19,8 @@ from elftools.elf.elffile import ELFFile
 from elftools.elf.gnuversions import GNUVerDefSection
 
 INDEX = "https://chaquo.com/pypi-13.1"
+#: Symbols the linker defines rather than the library: nothing links against them.
+LINKER_SYMBOLS = frozenset({"_end", "_edata", "__bss_start", "__bss_start__", "__bss_end__", "_bss_end__", "__end__"})
 #: Chaquopy's newest builds of the versions we replace.
 ORIGINAL_BUILD = "2"
 WHEEL = re.compile(r"(?P<stem>chaquopy_[a-z0-9]+)-(?P<version>[^-]+)-(?P<build>\d[^-]*)-py3-none-android_\d+_(?P<abi>\w+)\.whl$")
@@ -44,11 +46,14 @@ def describe(blob: bytes) -> dict:
                 elif tag.entry.d_tag == "DT_SONAME":
                     soname = tag.soname
         elif isinstance(section, GNUVerDefSection):
-            for _, aux in section.iter_versions():
-                versions.add(next(aux).name)
+            for verdef, aux in section.iter_versions():
+                if not verdef["vd_flags"] & 1:  # VER_FLG_BASE only names the library itself
+                    versions.add(next(aux).name)
     dynsym = elf.get_section_by_name(".dynsym")
     for symbol in dynsym.iter_symbols():
-        if symbol["st_shndx"] != "SHN_UNDEF" and symbol["st_info"]["bind"] in ("STB_GLOBAL", "STB_WEAK") and symbol.name:
+        # The 2019 linker also emitted each version name as an absolute symbol; the versions are compared above.
+        if (symbol["st_shndx"] not in ("SHN_UNDEF", "SHN_ABS") and symbol.name not in LINKER_SYMBOLS
+                and symbol["st_info"]["bind"] in ("STB_GLOBAL", "STB_WEAK") and symbol.name):
             exported.add(symbol.name)
     align = min(seg["p_align"] for seg in elf.iter_segments() if seg["p_type"] == "PT_LOAD")
     return {"soname": soname, "needed": needed, "versions": versions, "exported": exported, "align": align}
