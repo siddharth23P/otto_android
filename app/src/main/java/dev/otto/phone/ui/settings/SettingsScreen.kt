@@ -1,5 +1,10 @@
 package dev.otto.phone.ui.settings
 
+import androidx.compose.runtime.remember
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.compose.rememberLauncherForActivityResult
+import android.content.pm.PackageManager
+import android.Manifest
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -103,6 +108,20 @@ fun SettingsScreen(m: Models) {
                     OttoSwitch(app.allowedToAct, { m.app.setAllowedToAct(it) }, "Otto may act on the phone", Modifier.testTag("settings_act"))
                 }
                 LinkRow("Accessibility service", { m.app.openAccessibilitySettings() }, value = if (app.serviceEnabled) "on" else "off")
+                // Phone actions that need a permission of their own (actions/PhoneActions.kt).
+                val context = LocalContext.current
+                var contacts by remember { mutableStateOf(context.checkSelfPermission(Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED) }
+                val askContacts = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+                    contacts = granted
+                    if (!granted) m.app.openAppInfo()
+                }
+                LinkRow("Contact lookup", { if (!contacts) askContacts.launch(Manifest.permission.READ_CONTACTS) else m.app.openAppInfo() },
+                    Modifier.testTag("settings_contacts"), value = if (contacts) "allowed" else "off")
+                LinkRow("Do Not Disturb access", {
+                    context.startActivity(android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)
+                        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                }, Modifier.testTag("settings_dnd"),
+                    value = if (context.getSystemService(android.app.NotificationManager::class.java).isNotificationPolicyAccessGranted) "allowed" else "off")
             }
             Panel("otto") {
                 LinkRow("Keys", { m.app.push(Route.Keys) }, Modifier.testTag("settings_keys"), first = true)

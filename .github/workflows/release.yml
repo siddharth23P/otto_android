@@ -91,9 +91,10 @@ jobs:
             # "Signer #1 certificate SHA-256 digest:" or, from build-tools 37, "V2 Signer: certificate ...".
             got=$(sed -n 's/^.*[Ss]igner.*certificate SHA-256 digest: //p' <<< "$report" | head -1)
             if [ "$got" != "$CERT_SHA256" ]; then echo "$report"; echo "::error::$apk is signed with '$got'"; exit 1; fi
-            # #14: at most 75 MB per ABI (numpy and OpenBLAS alone are 22 MB unpacked).
+            # #14: at most 85 MB per ABI (numpy and OpenBLAS alone are 22 MB unpacked). 75 MB until
+            # 2026-09-17, when otto 0.1.4's document libraries (reportlab, lxml, Pillow) took arm64 to 75.4 MB.
             size=$(stat -c %s "$apk")
-            if [ "$size" -gt $((75 * 1048576)) ]; then echo "::error::$apk is $((size / 1048576)) MB, over 75 MB"; exit 1; fi
+            if [ "$size" -gt $((85 * 1048576)) ]; then echo "::error::$apk is $((size / 1048576)) MB, over 85 MB"; exit 1; fi
           done
           python3 .github/scripts/check_16k.py dist/*arm64-v8a.apk
           got=$(keytool -printcert -jarfile "dist/otto-$VERSION.aab" | sed -n 's/^\s*SHA256: //p' | tr -d ':' | tr 'A-F' 'a-f' | head -1)

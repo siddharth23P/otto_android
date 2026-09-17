@@ -11,6 +11,8 @@ sealed interface Route {
     data object Usage : Route
     data object Routing : Route
     data object Memory : Route
+    /** The current conversation's files. */
+    data object Files : Route
     data class Note(val packageName: String) : Route
     /** A research document a turn wrote. `sessionId` names where its files live. */
     data class Document(val document: DocumentInfo, val sessionId: String = "") : Route

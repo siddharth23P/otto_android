@@ -147,7 +147,7 @@ private fun AttachmentRow(a: Attachment, onDetach: (String) -> Unit) {
         Column(Modifier.weight(1f).padding(vertical = 6.dp)) {
             Text(a.name, style = OttoTheme.type.ui.copy(color = c.ink), maxLines = 1,
                 modifier = Modifier.horizontalScroll(rememberScrollState()))
-            Text(Attachments.describe(a), style = OttoTheme.type.meta.copy(color = if (failed) c.bad else c.faint), maxLines = 2)
+            Text(Attachments.describe(a), style = OttoTheme.type.meta.copy(color = if (failed) c.bad else c.faint), maxLines = if (failed) 4 else 2)
         }
         val interaction = remember { MutableInteractionSource() }
         Box(
