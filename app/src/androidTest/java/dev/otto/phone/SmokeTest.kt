@@ -136,10 +136,12 @@ class SmokeTest {
             download("otto-smoke-note.txt", "text/plain", "Buy oat milk and two lemons".toByteArray()),
             download("otto-smoke-report.pdf", "application/pdf", Pdf.bytes(listOf("Quarterly revenue grew nine percent"))),
         )
-        scenario = ActivityScenario.launch(Intent(context, MainActivity::class.java)
+        // As a share sheet does: a new task (MainActivity is singleTask, which ActivityScenario
+        // cannot follow), found by the compose rule once it is up.
+        context.startActivity(Intent(context, MainActivity::class.java)
             .setAction(Intent.ACTION_SEND_MULTIPLE).setType("*/*")
             .putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
-            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION))
         runCatching {
             compose.waitUntilAtLeastOneExists(hasTestTag("disclosure_accept"), 5_000)
             compose.onNodeWithTag("disclosure_accept").performClick()
