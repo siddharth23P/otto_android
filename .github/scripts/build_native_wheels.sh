@@ -71,6 +71,8 @@ for abi in arm64_v8a x86_64; do
                     ;;
                 libxslt)
                     xml="$work/prefix/libxml2-$abi/chaquopy"
+                    # libtool leaves -lxml2 off libxslt.so otherwise, and xsltproc then fails to link.
+                    LIBS="-L$xml/lib -lxml2" \
                     ./configure --host=$host --prefix="$prefix" --without-crypto --without-python \
                         --with-libxml-prefix="$xml" --with-libxml-include-prefix="$xml/include/libxml2" \
                         --with-libxml-libs-prefix="$xml/lib"
