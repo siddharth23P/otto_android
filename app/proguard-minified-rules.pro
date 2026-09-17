@@ -4,4 +4,5 @@
 -keep class androidx.** { *; }
 -keep class kotlin.** { *; }
 -keep class kotlinx.coroutines.** { *; }
+-keep class kotlinx.serialization.json.** { *; }
 -dontwarn com.google.errorprone.annotations.**
