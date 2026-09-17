@@ -19,7 +19,7 @@ api=24
 build=9   # the wheel build tag; Chaquopy's newest builds are 2
 here=$(cd "$(dirname "$0")" && pwd)
 work=$(mktemp -d)
-mkdir -p "$out" "$work/src"
+mkdir -p "$out" "$work/src" "$work/build" "$work/prefix"
 
 fetch() {  # name url sha256
     local file="$work/src/$(basename "$2")"
