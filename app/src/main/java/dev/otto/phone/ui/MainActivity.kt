@@ -25,6 +25,7 @@ class MainActivity : ComponentActivity() {
     private val setup: SetupViewModel by viewModels()
     private val routing: RoutingViewModel by viewModels()
     private val lessons: LessonsViewModel by viewModels()
+    private val files: FilesViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -44,7 +45,7 @@ class MainActivity : ComponentActivity() {
                 enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
                 onDispose { }
             }
-            val models = remember { Models(app, chat, sessions, setup, routing, lessons) }
+            val models = remember { Models(app, chat, sessions, setup, routing, lessons, files) }
             OttoTheme(state.theme) { OttoRoot(models) }
         }
         takeShared(intent)

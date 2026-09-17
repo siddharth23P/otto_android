@@ -1,6 +1,7 @@
 package dev.otto.phone.attach
 
 import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.ImageDecoder
 import android.net.Uri
@@ -32,7 +33,9 @@ import java.util.UUID
 class AttachmentReader(private val context: Context) {
     private val dir: File get() = File(context.cacheDir, "attachments").apply { mkdirs() }
 
-    /** Name, size and kind, before anything is read; null kind when Otto cannot read the file. */
+    /** Name, size and kind, before anything is read; null when Otto cannot read the file. A file
+     *  picked with the paperclip keeps a lasting read permission (`linked`): the session refers to the
+     *  original instead of copying it. A shared one cannot keep it, and is copied when it is read. */
     fun peek(uri: Uri): Attachment? {
         var name = uri.lastPathSegment?.substringAfterLast('/') ?: "file"
         var size = -1L
@@ -44,11 +47,40 @@ class AttachmentReader(private val context: Context) {
                 }
             }
         }
-        val kind = Attachments.kindOf(name, context.contentResolver.getType(uri)) ?: return null
-        return Attachment(UUID.randomUUID().toString(), name, kind, size.coerceAtLeast(0))
+        val mime = context.contentResolver.getType(uri).orEmpty()
+        val kind = Attachments.kindOf(name, mime) ?: return null
+        val linked = runCatching {
+            context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }.isSuccess
+        return Attachment(UUID.randomUUID().toString(), name, kind, size.coerceAtLeast(0),
+            uri = uri.toString(), mime = mime, linked = linked)
     }
 
-    suspend fun read(uri: Uri, a: Attachment): Attachment.State = withContext(Dispatchers.IO) {
+    /** Gives back the lasting permission to a file no session refers to any more. */
+    fun release(uri: String) {
+        runCatching { context.contentResolver.releasePersistableUriPermission(Uri.parse(uri), Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+    }
+
+    /** The original of a file that cannot be referenced, kept in the cache until the message is sent. */
+    private fun keep(uri: Uri, a: Attachment): String {
+        val kept = File(dir, "${a.id}.original")
+        copyCapped(uri, kept, MAX_IMAGE_SOURCE_BYTES)
+        return kept.absolutePath
+    }
+
+    fun discard(a: Attachment) {
+        a.keptCopy?.let { File(it).delete() }
+        if (a.linked) release(a.uri)
+    }
+
+    /** The file read to text, and, for one that cannot be referenced, where its original is kept. */
+    suspend fun read(uri: Uri, a: Attachment): Pair<Attachment.State, String?> = withContext(Dispatchers.IO) {
+        val state = readText(uri, a)
+        val kept = if (!a.linked && state is Attachment.State.Ready) runCatching { keep(uri, a) }.getOrNull() else null
+        state to kept
+    }
+
+    private suspend fun readText(uri: Uri, a: Attachment): Attachment.State = withContext(Dispatchers.IO) {
         val copy = File(dir, "${a.id}-${a.name.replace(Regex("[^A-Za-z0-9._-]"), "_").takeLast(80)}")
         try {
             val limit = if (a.kind == FileKind.IMAGE) MAX_IMAGE_SOURCE_BYTES else MAX_FILE_BYTES

@@ -3,6 +3,7 @@ package dev.otto.phone.ui
 import android.app.Application
 import android.net.Uri
 import dev.otto.phone.attach.AttachmentReader
+import dev.otto.phone.attach.SessionFiles
 import dev.otto.phone.state.Attachment
 import dev.otto.phone.state.Attachments
 import dev.otto.phone.state.FileChip
@@ -41,6 +42,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     private val _state = MutableStateFlow(ChatState())
     val state: StateFlow<ChatState> = _state
     private val reader = AttachmentReader(app)
+    private val sessionFiles = SessionFiles(app)
     private val _attachments = MutableStateFlow<List<Attachment>>(emptyList())
     /** Files waiting to go with the next message, each read to text as soon as it is added. */
     val attachments: StateFlow<List<Attachment>> = _attachments
@@ -119,13 +121,18 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             if (a == null) { _toasts.tryEmit("Otto reads PDF, Word (.docx), text, JSON and image files"); continue }
             _attachments.update { it + a }
             viewModelScope.launch {
-                val state = reader.read(uri, a)
-                _attachments.update { list -> list.map { if (it.id == a.id) it.copy(state = state) else it } }
+                val (state, kept) = reader.read(uri, a)
+                if (_attachments.value.none { it.id == a.id }) { reader.discard(a.copy(keptCopy = kept)); return@launch }
+                _attachments.update { list -> list.map { if (it.id == a.id) it.copy(state = state, keptCopy = kept) else it } }
             }
         }
     }
 
-    fun detach(id: String) = _attachments.update { list -> list.filterNot { it.id == id } }
+    fun detach(id: String) {
+        val gone = _attachments.value.firstOrNull { it.id == id } ?: return
+        _attachments.update { list -> list.filterNot { it.id == id } }
+        reader.discard(gone)
+    }
 
     /** Whether the files attached so far let a message go: none still being read. */
     val attachmentsSettled: Boolean get() = _attachments.value.none { it.state == Attachment.State.Reading }
@@ -134,13 +141,21 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         val t = transport
         val files = _attachments.value.filter { it.ready }
         if ((text.isBlank() && files.isEmpty()) || !attachmentsSettled || _state.value.running || t == null) return false
-        // otto takes text: the files go as marked blocks before what was typed (Attachments.compose).
-        val message = if (files.isEmpty()) text else Attachments.compose(text, files)
         dispatch(ChatAction.Sent(text.trim(), now(), guardLog() ?: emptyList(), files.map { FileChip(it.name, it.kind) }))
+        // Files that failed to read are dropped here; their lasting permissions and copies with them.
+        _attachments.value.filterNot { it.ready }.forEach(reader::discard)
         _attachments.value = emptyList()
         OttoForegroundService.start(getApplication(), text.ifBlank { files.joinToString { it.name } }.take(80))
         viewModelScope.launch {
             prefs.setTurnInFlight(_state.value.sessionId.ifBlank { Resumption.NEW_SESSION })
+            // Each file is kept with the session (its text where otto can read it again, a reference or
+            // a copy of the original), and the message names where: otto takes text, so the files go as
+            // marked blocks before what was typed (Attachments.compose).
+            val sid = _state.value.sessionId
+            val saved = if (files.isEmpty() || sid.isBlank() || t.name != "embedded") emptyMap()
+                else files.mapNotNull { a -> sessionFiles.store(sid, a)?.let { a.id to it } }.toMap()
+            if (t.name != "embedded") files.forEach(reader::discard)
+            val message = if (files.isEmpty()) text else Attachments.compose(text, files, saved)
             // A message with files is about the files: it never runs on the phone (2026-09-17: a CV
             // review, with the phone decision's key refused, was typed into a new note in Keep).
             val phone = if (files.isNotEmpty() && t.capabilities.supports(Op.TURN_PHONE)) PhoneMode.OFF else PhoneMode.AUTO

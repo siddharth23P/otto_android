@@ -83,6 +83,16 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Runs the on-device agent while it performs a task the user asked for in chat" />
         </service>
+        <!-- Opens a kept copy of a shared file (the Files screen) in the app that reads its type. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
         <!-- The QR scanner's module arrives with the app from Play services, not on the first scan. -->
         <meta-data
             android:name="com.google.mlkit.vision.DEPENDENCIES"

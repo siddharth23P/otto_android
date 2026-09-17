@@ -19,6 +19,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.otto.phone.state.Route
 import dev.otto.phone.ui.chat.ChatScreen
 import dev.otto.phone.ui.document.DocumentScreen
+import dev.otto.phone.ui.files.FilesScreen
 import dev.otto.phone.ui.memory.MemoryScreen
 import dev.otto.phone.ui.memory.NoteScreen
 import dev.otto.phone.ui.settings.DoctorScreen
@@ -36,6 +37,7 @@ class Models(
     val setup: SetupViewModel,
     val routing: RoutingViewModel,
     val lessons: LessonsViewModel,
+    val files: FilesViewModel,
 )
 
 /** Every screen is laid out inside the safe area, keyboard included. The window draws edge to edge
@@ -82,6 +84,7 @@ fun OttoRoot(m: Models) {
                 Route.Routing -> RoutingScreen(m)
                 is Route.Document -> DocumentScreen(top.document, onBack = { m.app.back() })
                 Route.Memory -> MemoryScreen(m)
+                Route.Files -> FilesScreen(m)
                 is Route.Note -> NoteScreen(m, top.packageName)
             }
         }

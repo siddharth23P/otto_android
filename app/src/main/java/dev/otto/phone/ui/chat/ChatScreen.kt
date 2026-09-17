@@ -127,6 +127,7 @@ fun ChatScreen(m: Models) {
                     spend = chat.usage?.let { Format.formatCost(it.cost, ChatText.UNKNOWN_COST) + if (!it.fullyPriced && it.cost != null) "+" else "" },
                     onMenu = { m.sessions.load(); m.sessions.loadUsage(); scope.launch { drawer.open() } },
                     onSettings = { m.app.push(Route.Settings) },
+                    onFiles = { m.app.push(Route.Files) },
                     onCopyLast = {
                         val last = m.chat.lastAnswer
                         if (last == null) m.chat.toast("nothing to copy yet") else { clipboard.setText(AnnotatedString(last)); m.chat.toast("copied") }
@@ -179,7 +180,7 @@ fun ChatScreen(m: Models) {
 private fun lastWhere(blocks: List<ChatBlock>) = (blocks.lastOrNull { it is ChatBlock.Otto && it.turn != null } as? ChatBlock.Otto)?.turn?.where
 
 @Composable
-private fun ChatTopBar(spend: String?, onMenu: () -> Unit, onSettings: () -> Unit, onCopyLast: () -> Unit) {
+private fun ChatTopBar(spend: String?, onMenu: () -> Unit, onSettings: () -> Unit, onFiles: () -> Unit, onCopyLast: () -> Unit) {
     val c = OttoTheme.colors
     var menu by remember { mutableStateOf(false) }
     Column {
@@ -189,6 +190,7 @@ private fun ChatTopBar(spend: String?, onMenu: () -> Unit, onSettings: () -> Uni
             Box(Modifier.weight(1f))
             if (spend != null) Text(spend, style = OttoTheme.type.meta.copy(fontSize = 12.sp, color = c.dim, fontFeatureSettings = "tnum"), maxLines = 1,
                 modifier = Modifier.padding(end = 2.dp).semantics { contentDescription = "spent $spend" })
+            IconAction(OttoIcons.FileText, "files in this conversation", onFiles, Modifier.testTag("topbar_files"))
             Box {
                 IconAction(OttoIcons.More, "more options", { menu = true }, Modifier.testTag("topbar_more"))
                 DropdownMenu(

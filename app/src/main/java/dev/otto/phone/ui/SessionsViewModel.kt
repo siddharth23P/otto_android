@@ -23,6 +23,7 @@ import kotlinx.serialization.json.Json
 
 /** The sessions drawer: the list, the current session's spend, rename, export, import, delete. */
 class SessionsViewModel(app: Application) : AndroidViewModel(app) {
+    private val files = dev.otto.phone.attach.SessionFiles(app)
     private val connection = (app as OttoApp).connection
     private val _state = MutableStateFlow(SessionsState())
     val state: StateFlow<SessionsState> = _state
@@ -73,7 +74,11 @@ class SessionsViewModel(app: Application) : AndroidViewModel(app) {
             val t = connection.current ?: return@launch
             val reply = t.deleteSession(id)
             dispatch(SessionsAction.Deleted(id, reply))
-            if (reply is Reply.Ok && reply.value.deleted) onDeleted(id) else _state.value.error?.let(::say)
+            if (reply is Reply.Ok && reply.value.deleted) {
+                // Its files go with it, and the read permissions no other conversation needs.
+                if (t.name == "embedded") files.forget(id)
+                onDeleted(id)
+            } else _state.value.error?.let(::say)
         }
     }
 

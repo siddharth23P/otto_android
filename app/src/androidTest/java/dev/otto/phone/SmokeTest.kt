@@ -167,6 +167,13 @@ class SmokeTest {
         compose.waitUntilAtLeastOneExists(hasText("otto-smoke-report.pdf: [page 1] Quarterly revenue grew", substring = true), 5_000)
         // The sent message shows its files as chips.
         compose.waitUntil(5_000) { compose.onAllNodes(hasTestTag("message_file")).fetchSemanticsNodes().size >= 2 }
+        // The conversation's Files: both kept, as copies (a shared file's permission cannot last),
+        // with the text otto read.
+        compose.onNodeWithTag("topbar_files").performClick()
+        compose.waitUntil(30_000) { compose.onAllNodes(hasTestTag("file_row")).fetchSemanticsNodes().size == 2 }
+        compose.waitUntilAtLeastOneExists(hasText("copy kept · otto has its text", substring = true), 5_000)
+        compose.onAllNodes(hasTestTag("file_text"))[0].performClick()
+        compose.waitUntilAtLeastOneExists(hasTestTag("file_text_body"), 10_000)
     }
 
     /** A file in Downloads (MediaStore, API 29+), as a file manager would share it. */
