@@ -3,7 +3,7 @@
 # the app declares; the shrunk release build ("minified") runs it on a 16 KB page-size image, so
 # neither shrinking nor page alignment can break a release unseen. Budgets: the pipeline imports in
 # under 8 s, the app holds at most 400 MB after a turn (the test's own memory included), and
-# release.yml holds an APK to 75 MB per ABI.
+# release.yml holds an APK to 85 MB per ABI.
 name: emulator
 
 on:
