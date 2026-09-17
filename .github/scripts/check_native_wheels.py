@@ -23,6 +23,9 @@ INDEX = "https://chaquo.com/pypi-13.1"
 LINKER_SYMBOLS = frozenset({"_end", "_edata", "__bss_start", "__bss_start__", "__bss_end__", "_bss_end__", "__end__"})
 #: Chaquopy's newest builds of the versions we replace.
 ORIGINAL_BUILD = "2"
+#: Chaquopy's libxml2 carried a static liblzma (reading .xz-compressed XML) and exported it; ours is
+#: built --without-lzma, as the NDK has no liblzma. lxml links none of these.
+NOT_REPLACED = re.compile(r"^(lzma_|__libxml2_xz)")
 WHEEL = re.compile(r"(?P<stem>chaquopy_[a-z0-9]+)-(?P<version>[^-]+)-(?P<build>\d[^-]*)-py3-none-android_\d+_(?P<abi>\w+)\.whl$")
 
 
@@ -89,7 +92,7 @@ def main(paths: list[str]) -> int:
                 problems.append(f"{where}: needs {sorted(extra)}, which Chaquopy's does not")
             if lost := old["versions"] - new["versions"]:
                 problems.append(f"{where}: lacks symbol versions {sorted(lost)}")
-            if lost := old["exported"] - new["exported"]:
+            if lost := {s for s in old["exported"] - new["exported"] if not NOT_REPLACED.match(s)}:
                 problems.append(f"{where}: lacks {len(lost)} exported symbols, e.g. {sorted(lost)[:8]}")
             if len(problems) == before:
                 print(f"ok {where}: soname {new['soname']}, needs {sorted(new['needed'])}, "
