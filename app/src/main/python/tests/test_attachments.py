@@ -127,6 +127,9 @@ def vision(monkeypatch, tmp_path, bridge):
             yield name, (lambda n=name: fakes[n])
 
     monkeypatch.setattr(attachments, "_vision_candidates", candidates)
+    # The app's own chain is what these tests exercise: an otto older than 0.1.4.
+    from agent.pipeline import vision as otto_vision
+    monkeypatch.delattr(otto_vision, "describe_with_fallback", raising=False)
     yield fakes
     attachments._unavailable.clear()
 
@@ -192,3 +195,31 @@ def test_the_real_candidates_are_ottos_route_then_image_capable_models():
 ])
 def test_kinds(name, mime, kind):
     assert attachments.kind_of(name, mime) == kind
+
+
+def test_with_otto_014_its_own_vision_chain_is_used(tmp_path, vision, monkeypatch):
+    from agent.pipeline import vision as otto_vision
+
+    seen = {}
+
+    def chain(router, image_b64, media_type, question, **overrides):
+        seen.update(media_type=media_type, overrides=overrides)
+        return "A form with three fields", "gemini:gemini-3.8-flash"
+
+    monkeypatch.setattr(otto_vision, "describe_with_fallback", chain, raising=False)
+    got = read(tmp_path, "form.png", PNG)
+    assert got["text"] == "A form with three fields" and got["note"] == "described by gemini:gemini-3.8-flash"
+    assert seen["media_type"] == "image/png" and seen["overrides"]["max_retries"] == 1
+
+
+def test_ottos_chain_failing_says_why_for_each_model(tmp_path, vision, monkeypatch):
+    from agent.pipeline import vision as otto_vision
+
+    def chain(*args, **kwargs):
+        raise RuntimeError("no vision model could answer -- gemini:gemini-3.8-flash: 429 Your prepayment credits "
+                           "are depleted; anthropic:claude-haiku-4-5-20251001: ANTHROPIC_API_KEY is not set")
+
+    monkeypatch.setattr(otto_vision, "describe_with_fallback", chain, raising=False)
+    got = read(tmp_path, "form.png", PNG)
+    assert got["error"]["message"] == ("form.png: no vision model could read it (gemini:gemini-3.8-flash out of "
+                                        "credit or quota; anthropic:claude-haiku-4-5-20251001 no usable key)")

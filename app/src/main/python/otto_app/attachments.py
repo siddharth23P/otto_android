@@ -183,6 +183,16 @@ def _reason(exc: BaseException) -> str:
     return text[:80]
 
 
+def _reasons(message: str) -> str:
+    """otto's "no vision model could answer -- a: why; b: why" as "a why-in-brief; b ..."."""
+    detail = message.split(" -- ", 1)[-1]
+    parts = []
+    for part in detail.split("; "):
+        name, _, why = part.partition(": ")
+        parts.append(f"{name} {_reason(RuntimeError(why or name))}" if why else part)
+    return "; ".join(parts)
+
+
 def _lasting(reason: str) -> bool:
     return reason in ("out of credit or quota", "no usable key")
 
@@ -218,6 +228,19 @@ def _describe(data: bytes, media_type: str) -> tuple[str, str]:
 
     real = sniff_media_type(data) or media_type
     encoded = base64.b64encode(data).decode()
+    from agent.pipeline import vision
+
+    if hasattr(vision, "describe_with_fallback"):
+        # otto 0.1.4+: its own VISION chain (Gemini 3.8/3.7/3.6 Flash, Claude, GPT-5-mini), with
+        # its health records -- the same order phone_look uses.
+        from agent.pipeline import tools as pt
+
+        try:
+            text, used = vision.describe_with_fallback(pt._get_router(), encoded, real, IMAGE_QUESTION,
+                                                       max_retries=VISION_RETRIES, timeout=VISION_TIMEOUT_S)
+        except Exception as exc:
+            raise NoVision(f"no vision model could read it ({_reasons(str(exc))})") from exc
+        return text, used
     reasons = []
     for provider, make in _vision_candidates():
         until, why = _unavailable.get(provider, (0.0, ""))
