@@ -1,5 +1,6 @@
 # The Android wheels otto needs that PyPI does not carry (pydantic-core, jiter,
-# orjson, ormsgpack, tiktoken, uuid-utils, zstandard). otto itself is pure Python
+# orjson, ormsgpack, tiktoken, uuid-utils, zstandard), and 16 KB rebuilds of the
+# helper libraries Chaquopy's lxml and Pillow load (libxml2, libxslt, freetype). otto itself is pure Python
 # and comes from PyPI at build time. One job per package so a failure
 # names its package. A green run on a tag ref publishes the whole set as a
 # GitHub Release: the binaries stay out of the repository, and wheels/wheels.json
@@ -15,7 +16,7 @@ on:
         default: false
       tag:
         description: "Release tag to publish or update"
-        default: wheels-cp313-otto-0.1.2
+        default: wheels-cp313-otto-0.1.4
   schedule:
     - cron: "17 3 * * *"
   push:
@@ -111,10 +112,30 @@ jobs:
           name: wheels-${{ matrix.package }}
           path: wheelhouse/*.whl
 
+  native:
+    # Chaquopy's chaquopy-libxml2/-libxslt/-freetype are 4 KB-aligned (built 2019); lxml and Pillow
+    # from its index load them. Same versions and flags, 16 KB, checked against the originals.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - name: Build
+        run: .github/scripts/build_native_wheels.sh wheelhouse
+      - name: Same libraries as Chaquopy's, 16 KB-aligned
+        run: |
+          pip install pyelftools
+          python .github/scripts/check_native_wheels.py wheelhouse/*.whl
+      - uses: actions/upload-artifact@v7
+        with:
+          name: wheels-native
+          path: wheelhouse/*.whl
+
   publish:
     # The wheel set as one checksummed Release, which app/build.gradle.kts downloads by the digests in
     # wheels/wheels.json. Only on demand: a nightly run answers "do they still build", not "ship this".
-    needs: [compiled]
+    needs: [compiled, native]
     if: github.event_name == 'workflow_dispatch' && inputs.publish
     runs-on: ubuntu-latest
     permissions:
@@ -162,7 +183,7 @@ jobs:
           path: wheels/wheels.json
 
   summary:
-    needs: [compiled]
+    needs: [compiled, native]
     if: always()
     runs-on: ubuntu-latest
     steps:
