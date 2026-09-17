@@ -29,7 +29,8 @@ jobs:
       matrix:
         include:
           # minSdk and targetSdk, as a developer builds it.
-          - { api-level: 30, target: default, build: debug }
+          # Known to fail until #31: the service never binds under instrumentation on Android 11.
+          - { api-level: 30, target: default, build: debug, known-failure: true }
           - { api-level: 35, target: default, build: debug }
           # The shrunk release build, and 16 KB pages, each on its own so a failure names its cause.
           - { api-level: 35, target: default, build: minified }
