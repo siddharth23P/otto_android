@@ -150,19 +150,92 @@ def _docx_text(path: Path) -> tuple[str, dict]:
 
 
 class NoVision(Exception):
-    """otto is not running in this process, so there is no vision model to describe an image."""
+    """No vision model could describe the image: otto is not running here, or none answered."""
 
 
-def _describe(data: bytes, media_type: str) -> str:
+#: Tried after otto's routed vision model (Gemini) when it cannot answer: both read images, and a
+#: person often has one of these keys when Gemini's credit runs out (2026-09-17). Never a text-only
+#: model -- otto's own rule (agent/router/mapping.py Task.VISION): it would describe an image it never saw.
+VISION_FALLBACKS: tuple[tuple[str, str, dict], ...] = (
+    ("anthropic", "claude-haiku-4-5-20251001", {"max_tokens": 4096, "temperature": 0.0}),
+    ("openai", "gpt-5-mini", {}),
+)
+#: A provider out of credit, or refusing the key, is skipped for this long before it is tried again.
+UNAVAILABLE_FOR_S = 3600.0
+#: One retry: a vendor's own backoff on an exhausted account made a failure take 40 s.
+VISION_RETRIES = 1
+VISION_TIMEOUT_S = 90
+
+_unavailable: dict[str, tuple[float, str]] = {}
+
+_CREDIT = re.compile(r"credit|quota|RESOURCE_EXHAUSTED|insufficient_quota|billing", re.I)
+_KEY = re.compile(r"not set|api[_ ]key|401|403|unauthori[sz]ed|permission|authentication", re.I)
+
+
+def _reason(exc: BaseException) -> str:
+    text = f"{type(exc).__name__}: {exc}"
+    if _CREDIT.search(text):
+        return "out of credit or quota"
+    if _KEY.search(text):
+        return "no usable key"
+    if "429" in text or "rate" in text.lower():
+        return "rate limited"
+    return text[:80]
+
+
+def _lasting(reason: str) -> bool:
+    return reason in ("out of credit or quota", "no usable key")
+
+
+def _vision_candidates():
+    """(provider, a function building its chat model), otto's routed choice first."""
+    from agent.router.llm_provider import get_provider
+
+    def routed():
+        from agent.pipeline import tools as pt
+        from agent.router.mapping import Task
+
+        decision = pt._get_router().resolve(Task.VISION)
+        params = {k: v for k, v in dict(decision.params).items() if k in ("temperature", "max_tokens")}
+        return get_provider(decision.provider).chat_model(
+            decision.model.id, max_retries=VISION_RETRIES, timeout=VISION_TIMEOUT_S, **params)
+
+    yield "gemini", routed
+    for provider, model, params in VISION_FALLBACKS:
+        yield provider, (lambda p=provider, m=model, kw=params: get_provider(p).chat_model(
+            m, max_retries=VISION_RETRIES, timeout=VISION_TIMEOUT_S, **kw))
+
+
+def _describe(data: bytes, media_type: str) -> tuple[str, str]:
+    """The image's description, and which provider gave it."""
+    import base64
+
     from otto_app import bootstrap
 
     if not bootstrap.is_configured():
         raise NoVision("images are described by otto's vision model, which is only here when Otto runs on this phone")
-    from agent.pipeline.vision import sniff_media_type
-    from agent.phone.tools import _default_vision
+    from agent.pipeline.vision import describe_image, sniff_media_type
 
     real = sniff_media_type(data) or media_type
-    return _default_vision(IMAGE_QUESTION, data, real)
+    encoded = base64.b64encode(data).decode()
+    reasons = []
+    for provider, make in _vision_candidates():
+        until, why = _unavailable.get(provider, (0.0, ""))
+        if until > time.monotonic():
+            reasons.append(f"{provider} {why}")
+            continue
+        try:
+            text = describe_image(make(), encoded, real, IMAGE_QUESTION)
+        except Exception as exc:
+            why = _reason(exc)
+            log.warning("vision via %s failed: %s", provider, why, exc_info=not _lasting(why))
+            if _lasting(why):
+                _unavailable[provider] = (time.monotonic() + UNAVAILABLE_FOR_S, why)
+            reasons.append(f"{provider} {why}")
+            continue
+        _unavailable.pop(provider, None)
+        return text, provider
+    raise NoVision("no vision model could read it (" + "; ".join(reasons) + ")")
 
 
 def read(path: str, name: str = "", mime: str = "") -> str:
@@ -191,7 +264,8 @@ def read(path: str, name: str = "", mime: str = "") -> str:
         elif kind == "text":
             text = _decode(file.read_bytes())
         else:
-            text = _describe(file.read_bytes(), mime or "image/jpeg")
+            text, provider = _describe(file.read_bytes(), mime or "image/jpeg")
+            meta = {"note": f"described by {provider}"}
     except PermissionError as exc:
         return _err(f"{shown}: {exc}", code="protected")
     except NoVision as exc:

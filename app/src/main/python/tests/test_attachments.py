@@ -99,28 +99,89 @@ def test_what_cannot_be_read_says_why(tmp_path, monkeypatch):
     assert missing["error"]["code"] == "missing"
 
 
-def test_an_image_is_described_by_ottos_vision_model(tmp_path, monkeypatch, bridge):
+class FakeLlm:
+    def __init__(self, name, answer=None, error=None):
+        self.name, self.answer, self.error, self.calls = name, answer, error, 0
+
+    def invoke(self, messages):
+        self.calls += 1
+        if self.error:
+            raise self.error
+        from types import SimpleNamespace
+        return SimpleNamespace(content=self.answer)
+
+
+@pytest.fixture
+def vision(monkeypatch, tmp_path, bridge):
+    """otto configured, and the vision candidates replaced by fakes (gemini, anthropic, openai)."""
     import json as _json
 
     from otto_app import bootstrap
 
-    png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
-    monkeypatch.setitem(bootstrap._state, "configured", False)
-    assert read(tmp_path, "shot.png", png)["error"]["code"] == "no_vision"
-
     bootstrap.configure(str(tmp_path / "otto"), _json.dumps({"INCEPTION_API_KEY": "x"}))
-    seen = {}
+    attachments._unavailable.clear()
+    fakes = {}
 
-    def fake_vision(question, data, media_type):
-        seen.update(question=question, size=len(data), media_type=media_type)
-        return "A receipt: MILK 2.50"
+    def candidates():
+        for name in ("gemini", "anthropic", "openai"):
+            yield name, (lambda n=name: fakes[n])
 
-    import agent.phone.tools as phone_tools
-    monkeypatch.setattr(phone_tools, "_default_vision", fake_vision)
-    got = read(tmp_path, "shot.jpg", png, "image/jpeg")
+    monkeypatch.setattr(attachments, "_vision_candidates", candidates)
+    yield fakes
+    attachments._unavailable.clear()
+
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
+DEPLETED = RuntimeError("429 RESOURCE_EXHAUSTED. Your prepayment credits are depleted.")
+
+
+def test_an_image_needs_otto_running_here(tmp_path, monkeypatch, bridge):
+    from otto_app import bootstrap
+
+    monkeypatch.setitem(bootstrap._state, "configured", False)
+    assert read(tmp_path, "shot.png", PNG)["error"]["code"] == "no_vision"
+
+
+def test_an_image_is_described_by_ottos_vision_model(tmp_path, vision):
+    vision.update(gemini=FakeLlm("gemini", "A receipt: MILK 2.50"))
+    got = read(tmp_path, "shot.jpg", PNG, "image/jpeg")
     assert got["ok"] and got["kind"] == "image" and got["text"] == "A receipt: MILK 2.50"
-    # The real type comes from the bytes, not the name.
-    assert seen["media_type"] == "image/png" and "transcribe" in seen["question"]
+    assert got["note"] == "described by gemini"
+
+
+def test_an_exhausted_provider_falls_back_and_is_skipped_for_a_while(tmp_path, vision):
+    gemini = FakeLlm("gemini", error=DEPLETED)
+    vision.update(gemini=gemini, anthropic=FakeLlm("anthropic", "A cat"), openai=FakeLlm("openai", "unused"))
+    got = read(tmp_path, "cat.png", PNG)
+    assert got["ok"] and got["text"] == "A cat" and got["note"] == "described by anthropic"
+    # The next image does not wait on Gemini again.
+    read(tmp_path, "cat2.png", PNG)
+    assert gemini.calls == 1
+
+
+def test_a_passing_failure_is_retried_on_the_next_image(tmp_path, vision):
+    gemini = FakeLlm("gemini", error=TimeoutError("read timed out"))
+    vision.update(gemini=gemini, anthropic=FakeLlm("anthropic", "A dog"), openai=FakeLlm("openai", "x"))
+    read(tmp_path, "a.png", PNG)
+    read(tmp_path, "b.png", PNG)
+    assert gemini.calls == 2
+
+
+def test_when_no_model_can_see_it_says_why_for_each(tmp_path, vision):
+    from agent.router.llm_provider.base import AuthError
+
+    vision.update(gemini=FakeLlm("gemini", error=DEPLETED), anthropic=FakeLlm("anthropic", error=AuthError("anthropic: ANTHROPIC_API_KEY is not set")),
+                  openai=FakeLlm("openai", error=RuntimeError("429 rate limit reached")))
+    got = read(tmp_path, "x.png", PNG)
+    assert got["error"]["code"] == "no_vision"
+    assert got["error"]["message"] == ("x.png: no vision model could read it (gemini out of credit or quota; "
+                                        "anthropic no usable key; openai rate limited)")
+
+
+def test_the_real_candidates_are_ottos_route_then_image_capable_models():
+    names = [name for name, _ in attachments._vision_candidates()]
+    assert names == ["gemini", "anthropic", "openai"]
+    assert all(p != "inception" for p, _, _ in attachments.VISION_FALLBACKS)
 
 
 @pytest.mark.parametrize("name,mime,kind", [
