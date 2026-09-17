@@ -77,8 +77,8 @@ android {
         applicationId = "dev.otto.phone"
         minSdk = 30
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.1.1"
         ndk { abiFilters += abis }
         buildConfigField("boolean", "EMBEDDED_PYTHON", embeddedPython.toString())
         // Whether files/otto_fake_model may switch otto's pipeline for a script (#14): never in release.
