@@ -146,7 +146,9 @@ fun ChatScreen(m: Models) {
                     onValueChange = { input = it },
                     running = chat.running,
                     asking = asking,
-                    canSend = app.link == Link.Ready && (asking || !chat.running),
+                    // Not before the chat has its session: a request sent while the session is still opening
+                    // started in a session of its own, which the opening one then replaced on screen.
+                    canSend = app.link == Link.Ready && chat.sessionId.isNotBlank() && (asking || !chat.running),
                     onSend = {
                         val text = input.text
                         if (asking) { m.chat.answer(text); input = TextFieldValue("") }
