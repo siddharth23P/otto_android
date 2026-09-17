@@ -22,10 +22,18 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.chaquo.python.Python
 import dev.otto.phone.access.OttoAccessibilityService
+import dev.otto.phone.bridge.PyBridge
 import dev.otto.phone.state.Resumption
 import dev.otto.phone.transport.EmbeddedTransport
 import dev.otto.phone.ui.MainActivity
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
@@ -93,16 +101,11 @@ class SmokeTest {
         Thread.sleep(300)
     }
 
-    private fun death(): String? = InstrumentationRegistry.getArguments().getString("otto.death")
-
-    @Test fun aScriptedTurnReadsThePhoneAsksAndAnswers() {
-        assumeTrue(death() == null)
-        val started = System.nanoTime()
-        launch()
-        // Starting instrumentation force-stops the app, which drops the service the workflow switched on:
-        // switch it off and on again from here, so the system binds it to this process.
-        // Android 11 leaves the service "binding" while this process holds a UiAutomation connection at all,
-        // so there the workflow's script switches it from outside (emulator-smoke.sh).
+    /** Starting instrumentation force-stops the app, which drops the service the workflow switched on:
+     *  switch it off and on again from here, so the system binds it to this process. Android 11 leaves
+     *  the service "binding" while this process holds a UiAutomation connection at all, so there the
+     *  workflow's script switches it from outside (emulator-smoke.sh). */
+    private fun bindService(): OttoAccessibilityService {
         if (Build.VERSION.SDK_INT >= 31) {
             shell("settings put secure enabled_accessibility_services null")
             shell("settings put secure enabled_accessibility_services ${context.packageName}/${OttoAccessibilityService::class.java.name}")
@@ -110,7 +113,16 @@ class SmokeTest {
         }
         val deadline = System.currentTimeMillis() + 30_000
         while (OttoAccessibilityService.instance == null && System.currentTimeMillis() < deadline) Thread.sleep(250)
-        assertNotNull("the accessibility service is not on", OttoAccessibilityService.instance)
+        return OttoAccessibilityService.instance.also { assertNotNull("the accessibility service is not on", it) }!!
+    }
+
+    private fun death(): String? = InstrumentationRegistry.getArguments().getString("otto.death")
+
+    @Test fun aScriptedTurnReadsThePhoneAsksAndAnswers() {
+        assumeTrue(death() == null)
+        val started = System.nanoTime()
+        launch()
+        bindService()
         send("show me the display settings")
         // The script opened Settings > Display, so Otto is behind it; its question waits in the chat.
         Thread.sleep(3_000)
@@ -132,6 +144,31 @@ class SmokeTest {
     }
 
     /** A file shared into Otto is read on the phone and goes with the message (PDF through pypdf). */
+    @Test fun premappedActionsRunWithoutTheScreen() {
+        assumeTrue(death() == null)
+        launch()
+        val service = bindService()
+        fun run(name: String, args: String) = Json.parseToJsonElement(PyBridge.run_action(name, args)).jsonObject
+        fun code(reply: JsonObject) = reply["error"]?.jsonObject?.get("code")?.jsonPrimitive?.content
+
+        val menu = Json.parseToJsonElement(PyBridge.actions()).jsonObject["data"]!!.jsonObject["actions"]!!.jsonArray
+        assertTrue(menu.size >= 18)
+        val copied = run("clipboard.copy", """{"text": "otto was here"}""")
+        assertEquals(copied.toString(), null, code(copied))
+        assertEquals("invalid", code(run("alarm.set", """{"hour": 30, "minute": 0}""")))
+        assertEquals("invalid", code(run("open_url", """{"url": "intent://x#Intent;end"}""")))
+        try {
+            // A call the person places: the dialer opens with the number and the phone is theirs.
+            val dialled = run("dial", """{"number": "+1 555 0100"}""")
+            assertEquals(dialled.toString(), true, dialled["data"]!!.jsonObject["handed_over"]?.jsonPrimitive?.boolean)
+            assertTrue(service.guard.handedOver)
+            assertEquals("guard", code(run("clipboard.copy", """{"text": "again"}""")))
+        } finally {
+            service.guard.handedOver = false
+            bringOttoBack()
+        }
+    }
+
     @Test fun sharedFilesAreReadAndGoWithTheMessage() {
         assumeTrue(death() == null)
         val uris = arrayListOf(

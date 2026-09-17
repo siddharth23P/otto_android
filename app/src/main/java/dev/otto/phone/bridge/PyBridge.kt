@@ -1,5 +1,6 @@
 package dev.otto.phone.bridge
 
+import dev.otto.phone.actions.PhoneActions
 import dev.otto.phone.log.OttoLog
 import dev.otto.phone.transport.EventBus
 import kotlinx.serialization.json.JsonElement
@@ -51,6 +52,14 @@ object PyBridge {
     @JvmStatic fun launch(packageName: String): String = envelope("launch") { ops.launch(packageName) }.toString()
     @JvmStatic fun open_settings(page: String, packageName: String): String = envelope("openSettings") { ops.openSettings(page, packageName) }.toString()
     @JvmStatic fun install(packageName: String, query: String): String = envelope("install") { ops.install(packageName, query) }.toString()
+    /** The phone actions otto may ask for (actions/ActionCatalog.kt), as {"actions": [spec...]}. */
+    @JvmStatic fun actions(): String = envelope("actions") { PhoneActions.menu() }.toString()
+    /** One phone action by name, with its arguments as a JSON object. */
+    @JvmStatic fun run_action(name: String, argsJson: String): String = envelope("action $name") { ops.runAction(name, parseArgs(argsJson)) }.toString()
+
+    private fun parseArgs(argsJson: String): JsonObject =
+        runCatching { kotlinx.serialization.json.Json.parseToJsonElement(argsJson.ifBlank { "{}" }) as JsonObject }
+            .getOrElse { throw DeviceException("the action's arguments are not a JSON object", "invalid") }
 
     /** An agent/embed.py event, as JSON, from the embedded runtime. */
     @JvmStatic fun onEvent(json: String) { EventBus.emit(json) }
@@ -78,6 +87,10 @@ object PyBridge {
             "launch" -> envelope("launch") { ops.launch(s(0)) }
             "open_settings" -> envelope("openSettings") { ops.openSettings(s(0), s(1)) }
             "install" -> envelope("install") { ops.install(s(0), s(1)) }
+            "actions" -> envelope("actions") { PhoneActions.menu() }
+            "run_action" -> envelope("action ${s(0)}") {
+                ops.runAction(s(0), (args.getOrNull(1) as? JsonObject) ?: parseArgs(s(1)))
+            }
             else -> Envelope.error("unsupported", "no such device method: $method")
         }
     }
@@ -100,6 +113,8 @@ interface DeviceOps {
     fun launch(packageName: String): JsonObject
     fun openSettings(page: String, packageName: String): JsonObject
     fun install(packageName: String, query: String): JsonObject
+    /** A phone action by name (actions/PhoneActions.kt). */
+    fun runAction(name: String, args: JsonObject): JsonObject
 
     object Unavailable : DeviceOps {
         private fun off(): Nothing = throw DeviceException(
@@ -117,6 +132,7 @@ interface DeviceOps {
         override fun launch(packageName: String) = off()
         override fun openSettings(page: String, packageName: String) = off()
         override fun install(packageName: String, query: String) = off()
+        override fun runAction(name: String, args: JsonObject) = off()
     }
 }
 

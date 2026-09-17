@@ -25,6 +25,7 @@ import dev.otto.phone.bridge.PyBridge
 import dev.otto.phone.bridge.doneWith
 import android.util.Log
 import dev.otto.phone.OttoApp
+import dev.otto.phone.actions.PhoneActions
 import dev.otto.phone.data.Prefs
 import dev.otto.phone.device.AppCatalog
 import dev.otto.phone.device.PlayStore
@@ -657,6 +658,10 @@ class OttoAccessibilityService : AccessibilityService(), DeviceOps {
             shown(after)?.let { put("after", it) }
         }
     }
+
+    private val phoneActions by lazy { PhoneActions(this) { if (::guard.isInitialized) guard else null } }
+
+    override fun runAction(name: String, args: JsonObject): JsonObject = serial { phoneActions.run(name, args) }
 
     override fun install(packageName: String, query: String): JsonObject = serial {
         guard.requireActionable(null)

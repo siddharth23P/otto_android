@@ -2,6 +2,7 @@ package dev.otto.phone.ui
 
 import android.app.Application
 import android.net.Uri
+import dev.otto.phone.actions.PhoneActions
 import dev.otto.phone.attach.AttachmentReader
 import dev.otto.phone.attach.SessionFiles
 import dev.otto.phone.state.Attachment
@@ -152,6 +153,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             // a copy of the original), and the message names where: otto takes text, so the files go as
             // marked blocks before what was typed (Attachments.compose).
             val sid = _state.value.sessionId
+            PhoneActions.currentSession = sid
             val saved = if (files.isEmpty() || sid.isBlank() || t.name != "embedded") emptyMap()
                 else files.mapNotNull { a -> sessionFiles.store(sid, a)?.let { a.id to it } }.toMap()
             if (t.name != "embedded") files.forEach(reader::discard)
