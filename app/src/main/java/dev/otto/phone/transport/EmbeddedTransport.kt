@@ -94,7 +94,7 @@ class EmbeddedTransport(private val context: Context, private val prefs: Prefs) 
     private suspend fun startRaw(): Reply<Hello> = withContext(Dispatchers.IO) {
         if (!BuildConfig.EMBEDDED_PYTHON) return@withContext Reply.Err("unavailable", "this build has no embedded runtime")
         runCatching {
-            if (!Python.isStarted()) Python.start(AndroidPlatform(context))
+            PythonRuntime.get(context)
             val home = File(context.filesDir, "otto").absolutePath
             val keys = prefs.vendorKeysJson(prefs.vendorKeys())
             // BuildConfig.DEBUG keeps the runtime's DEBUG logs, the HTTP transport's among them. The fake

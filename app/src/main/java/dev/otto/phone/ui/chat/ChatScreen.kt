@@ -58,6 +58,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.otto.phone.protocol.Op
 import dev.otto.phone.state.ChatBlock
 import dev.otto.phone.state.Format
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import dev.otto.phone.state.Attachments
 import dev.otto.phone.state.RestrictedSettings
 import dev.otto.phone.state.Route
 import dev.otto.phone.ui.Link
@@ -141,6 +144,8 @@ fun ChatScreen(m: Models) {
                 ChatBanners(m, app)
                 Transcript(m, Modifier.weight(1f), now, actions, onSuggestion = { s -> input = TextFieldValue(s, TextRange(s.length)) })
                 val asking = chat.ask != null
+                val files by m.chat.attachments.collectAsStateWithLifecycle()
+                val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris -> m.chat.attach(uris) }
                 Composer(
                     value = input,
                     onValueChange = { input = it },
@@ -155,6 +160,9 @@ fun ChatScreen(m: Models) {
                         else if (m.chat.send(text)) input = TextFieldValue("")
                     },
                     onStop = { m.chat.stop() },
+                    attachments = files,
+                    onAttach = { picker.launch(Attachments.MIME_TYPES) },
+                    onDetach = { m.chat.detach(it) },
                     chips = listOfNotNull(ChatText.whereChip(chat.turn?.where ?: lastWhere(chat.blocks)), ChatText.modelChip(chat.turn)),
                     disabledReason = when {
                         app.link == Link.NeedsKey -> "otto needs a key"

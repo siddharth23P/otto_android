@@ -100,6 +100,8 @@ jobs:
         with:
           python-version: "3.12"
       - run: |
-          pip install "otto-cli-agent==${{ matrix.otto }}"
+          # The app's other requirements (pypdf), then the otto release under test in place of the pin.
+          grep -v '^otto-cli-agent' app/src/main/python/requirements.txt > /tmp/others.txt
+          pip install -r /tmp/others.txt "otto-cli-agent==${{ matrix.otto }}"
           pip install pytest
       - run: pytest -q app/src/main/python/tests

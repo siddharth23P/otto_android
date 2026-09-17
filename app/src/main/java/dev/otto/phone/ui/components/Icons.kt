@@ -52,5 +52,9 @@ object OttoIcons {
     val Check = icon("check", "M5 12l5 5L19 7")
     val Trash = icon("trash", "M4 7h16", "M10 11v6", "M14 11v6", "M6 7l1 13h10l1-13", "M9 7V4h6v3")
     val Pencil = icon("pencil", "M16 4l4 4L8 20H4v-4z")
+    val Paperclip = icon("paperclip",
+        "M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48")
+    val Image = icon("image", "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z",
+        "M9 7.5a1 1 0 1 0 0.01 0", "M21 15l-5-5L5 21")
 
 }

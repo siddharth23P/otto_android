@@ -40,6 +40,7 @@ adb logcat -c
 service_on
 status=0
 instrument -e class "$cls#aScriptedTurnReadsThePhoneAsksAndAnswers" || status=1
+instrument -e class "$cls#sharedFilesAreReadAndGoWithTheMessage" || status=1
 adb logcat -d -s OttoSmoke | grep budget | tee -a smoke/budgets.txt || true
 
 # Process death: the first run starts a slow turn and ends, which kills the app mid-turn.
@@ -52,6 +53,6 @@ fi
 
 adb shell dumpsys accessibility > smoke/accessibility.txt || true
 adb shell settings get secure enabled_accessibility_services >> smoke/accessibility.txt || true
-adb logcat -d -v time -s OttoDevice OttoGuard OttoLink OttoTransport OttoEvent OttoOverlay OttoSmoke \
+adb logcat -d -v time -s OttoDevice OttoGuard OttoLink OttoTransport OttoEvent OttoOverlay OttoSmoke OttoAttach \
   python.stderr python.stdout AndroidRuntime TestRunner > smoke/logcat.txt || true
 exit $status

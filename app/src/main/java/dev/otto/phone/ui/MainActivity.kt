@@ -1,6 +1,9 @@
 package dev.otto.phone.ui
 
+import android.content.Intent
 import android.graphics.Color
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -44,6 +47,24 @@ class MainActivity : ComponentActivity() {
             val models = remember { Models(app, chat, sessions, setup, routing, lessons) }
             OttoTheme(state.theme) { OttoRoot(models) }
         }
+        takeShared(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        takeShared(intent)
+    }
+
+    /** Files shared into Otto from another app become attachments of the next message. */
+    private fun takeShared(intent: Intent?) {
+        val uris: List<Uri> = when (intent?.action) {
+            Intent.ACTION_SEND -> listOfNotNull(intent.parcelable(Intent.EXTRA_STREAM))
+            Intent.ACTION_SEND_MULTIPLE -> intent.parcelables(Intent.EXTRA_STREAM)
+            else -> emptyList()
+        }
+        if (uris.isNotEmpty()) chat.attach(uris)
+        // Shared text with no file goes into nothing: the composer is the person's.
+        intent?.action = Intent.ACTION_MAIN
     }
 
     override fun onResume() {
@@ -51,3 +72,11 @@ class MainActivity : ComponentActivity() {
         app.refreshService()
     }
 }
+
+private fun Intent.parcelable(key: String): Uri? =
+    if (Build.VERSION.SDK_INT >= 33) getParcelableExtra(key, Uri::class.java)
+    else @Suppress("DEPRECATION") (getParcelableExtra(key) as? Uri)
+
+private fun Intent.parcelables(key: String): List<Uri> =
+    if (Build.VERSION.SDK_INT >= 33) getParcelableArrayListExtra(key, Uri::class.java).orEmpty()
+    else @Suppress("DEPRECATION") getParcelableArrayListExtra<Uri>(key).orEmpty()
