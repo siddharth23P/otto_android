@@ -95,6 +95,7 @@ jobs:
             size=$(stat -c %s "$apk")
             if [ "$size" -gt $((75 * 1048576)) ]; then echo "::error::$apk is $((size / 1048576)) MB, over 75 MB"; exit 1; fi
           done
+          python3 .github/scripts/check_16k.py dist/*arm64-v8a.apk
           got=$(keytool -printcert -jarfile "dist/otto-$VERSION.aab" | sed -n 's/^\s*SHA256: //p' | tr -d ':' | tr 'A-F' 'a-f' | head -1)
           if [ "$got" != "$CERT_SHA256" ]; then echo "::error::the bundle is signed with $got"; exit 1; fi
           (cd dist && sha256sum * > SHA256SUMS)
