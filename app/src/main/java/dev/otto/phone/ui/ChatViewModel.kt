@@ -11,6 +11,8 @@ import androidx.lifecycle.viewModelScope
 import dev.otto.phone.OttoApp
 import dev.otto.phone.access.OttoAccessibilityService
 import dev.otto.phone.protocol.AgentEvent
+import dev.otto.phone.protocol.Op
+import dev.otto.phone.protocol.PhoneMode
 import dev.otto.phone.protocol.Reply
 import dev.otto.phone.service.OttoForegroundService
 import dev.otto.phone.state.ChatAction
@@ -139,7 +141,10 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         OttoForegroundService.start(getApplication(), text.ifBlank { files.joinToString { it.name } }.take(80))
         viewModelScope.launch {
             prefs.setTurnInFlight(_state.value.sessionId.ifBlank { Resumption.NEW_SESSION })
-            val reply = t.startTurn(_state.value.sessionId.ifBlank { null }, message)
+            // A message with files is about the files: it never runs on the phone (2026-09-17: a CV
+            // review, with the phone decision's key refused, was typed into a new note in Keep).
+            val phone = if (files.isNotEmpty() && t.capabilities.supports(Op.TURN_PHONE)) PhoneMode.OFF else PhoneMode.AUTO
+            val reply = t.startTurn(_state.value.sessionId.ifBlank { null }, message, phone)
             if (reply !is Reply.Ok) {
                 val code = (reply as? Reply.Err)?.code ?: "unsupported"
                 // Only a turn that never started fails here; a started one ends with its own event.

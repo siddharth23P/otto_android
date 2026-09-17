@@ -565,8 +565,10 @@ for _name in missing():
 # --------------------------------------------------------------------------
 
 _log = logging.getLogger("otto_app.entry")
-#: Arguments never written to a log, by function and position: a key's value, a whole session.
-_HIDDEN: dict[str, set[int]] = {"set_key": {1}, "import_session": {0}}
+#: Arguments never written to a log, by function and position: a key's value, a whole session, and
+#: what a person wrote -- a message (with any attached file's text), an answer, a session's title.
+_HIDDEN: dict[str, set[int]] = {"set_key": {1}, "import_session": {0}, "start_turn": {1},
+                                "answer": {2}, "rename_session": {1}}
 MAX_LOGGED_ARG = 80
 
 

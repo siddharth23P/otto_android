@@ -87,3 +87,20 @@ def test_tls_trusts_certifi_unless_a_bundle_is_already_chosen(monkeypatch, tmp_p
     mine.write_text("x")
     monkeypatch.setenv("SSL_CERT_FILE", str(mine))
     assert bootstrap.trust_store() == str(mine)
+
+
+def test_what_a_person_wrote_is_never_logged(caplog):
+    from otto_app import entry
+
+    def start_turn(session_id, text, phone="auto"):
+        return json.dumps({"ok": True})
+
+    def answer(session_id, thread_id, text):
+        return json.dumps({"ok": True})
+
+    with caplog.at_level(logging.INFO, logger="otto_app.entry"):
+        entry._logged(start_turn)("s1", '<attached-file name="Me_CV.pdf">my address</attached-file> review it')
+        entry._logged(answer)("s1", "t1", "my PIN hint")
+    lines = " ".join(r.getMessage() for r in caplog.records)
+    assert "CV" not in lines and "address" not in lines and "PIN" not in lines
+    assert "start_turn('s1', <hidden>)" in lines and "answer('s1', 't1', <hidden>)" in lines

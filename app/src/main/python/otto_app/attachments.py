@@ -228,7 +228,7 @@ def _describe(data: bytes, media_type: str) -> tuple[str, str]:
             text = describe_image(make(), encoded, real, IMAGE_QUESTION)
         except Exception as exc:
             why = _reason(exc)
-            log.warning("vision via %s failed: %s", provider, why, exc_info=not _lasting(why))
+            log.warning("vision via %s failed: %s", provider, why)
             if _lasting(why):
                 _unavailable[provider] = (time.monotonic() + UNAVAILABLE_FOR_S, why)
             reasons.append(f"{provider} {why}")
@@ -273,12 +273,13 @@ def read(path: str, name: str = "", mime: str = "") -> str:
     except (zipfile.BadZipFile, ElementTree.ParseError, ValueError) as exc:
         return _err(f"{shown} could not be read: {exc}", code="unreadable")
     except Exception as exc:  # a vendor failure, a broken PDF
-        log.warning("reading %s failed", shown, exc_info=True)
+        log.warning("reading a %s file failed", kind, exc_info=True)
         return _err(f"{shown} could not be read: {type(exc).__name__}: {exc}", code="failed")
     text = text.replace("\x00", "")
     truncated = len(text) > MAX_FILE_CHARS
     if truncated:
         text = text[:MAX_FILE_CHARS]
-    log.info("read %s (%s, %d bytes) -> %d chars%s [%.0f ms]", shown, kind, size, len(text),
+    # The kind and the sizes only: a file's name can itself be personal ("..._CV.pdf").
+    log.info("read a %s file (%d bytes) -> %d chars%s [%.0f ms]", kind, size, len(text),
              ", cut" if truncated else "", (time.monotonic() - started) * 1000)
     return _ok(name=shown, kind=kind, size=size, text=text, chars=len(text), truncated=truncated, **meta)
