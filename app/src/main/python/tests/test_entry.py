@@ -6,7 +6,7 @@ import time
 from agent.pipeline import run as pipeline
 from agent.pipeline.toolkit import dispatch_table
 from agent.pipeline.tools import reachable_tools
-from otto_app import bootstrap, entry
+from otto_app import bootstrap, compat, entry
 
 
 def _wait(pred, timeout=10):
@@ -26,7 +26,9 @@ def test_bootstrap_and_setup_status(bridge, tmp_path, monkeypatch):
     # whatever the process had (otto 0.1.2's configure()).
     status = json.loads(bootstrap.configure(str(tmp_path / "otto"), json.dumps({**KEYS, "OPENAI_API_KEY": "sk-keystore1234"})))
     # The transport's hello reads otto's version and embedding API from here.
-    assert status == {"ok": True, "available": True, "home": str(tmp_path / "otto"), "otto": "0.1.2", "api": 1}
+    # compat.yml runs this against every otto release from the minimum up: the installed one.
+    assert status == {"ok": True, "available": True, "home": str(tmp_path / "otto"),
+                      "otto": compat.installed_version(), "api": 1}
     assert (tmp_path / "otto").is_dir()
     info = json.loads(entry.setup_status())
     assert info["ok"] and info["available"] and info["ready"]
