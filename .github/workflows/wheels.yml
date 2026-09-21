@@ -56,7 +56,7 @@ jobs:
       # ubuntu-latest ships the Android SDK at $ANDROID_HOME; setup-android
       # is not needed and its default package list names one the SDK
       # no longer has ('tools'), which failed every build.
-      - uses: astral-sh/setup-uv@v6   # the build[uv] frontend
+      - uses: astral-sh/setup-uv@v7   # the build[uv] frontend
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android,x86_64-linux-android
