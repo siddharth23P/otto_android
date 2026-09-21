@@ -14,7 +14,7 @@ markdownRenderer = "0.45.0"
 junit = "4.13.2"
 codeScanner = "16.1.0"
 androidxTestRunner = "1.6.2"
-androidxTestCore = "1.6.1"
+androidxTestCore = "1.7.0"
 androidxTestExt = "1.2.1"
 
 [libraries]
